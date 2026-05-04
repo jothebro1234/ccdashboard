@@ -236,6 +236,7 @@
 .team-badge.curriculum { background: var(--blue-g);   color: var(--blue);   border: 1px solid rgba(56,189,248,0.25); }
 .team-badge.kitmaking  { background: var(--bronze-g); color: var(--bronze); border: 1px solid rgba(196,124,63,0.25); }
 .team-badge.inperson   { background: var(--green-g);  color: var(--green);  border: 1px solid rgba(52,211,153,0.25); }
+.team-badge.media      { background: var(--purple-g); color: var(--purple); border: 1px solid rgba(167,139,250,0.25); }
 
 .admin-loading {
     text-align: center;

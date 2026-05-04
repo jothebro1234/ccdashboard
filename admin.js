@@ -52,12 +52,21 @@ function mkVol(name) {
 }
 
 // ── Data loading ─────────────────────────────────────────────────
+function parseTeams(raw) {
+    const t = (raw || '').toLowerCase();
+    const teams = [];
+    if (t.includes('curriculum team'))                              teams.push('Curriculum');
+    if (t.includes('kit assembly') || t.includes('kitmaking'))     teams.push('Kitmaking');
+    if (t.includes('in-person session') || t.includes('in person session')) teams.push('In-Person');
+    if (t.includes('content creation') || t.includes('media team')) teams.push('Media');
+    return teams;
+}
+
 async function loadAdminData() {
-    const [volRows, eventRows, currRows, rosterRows] = await Promise.all([
+    const [volRows, eventRows, currRows] = await Promise.all([
         fetchSheet(CONFIG.SHEET_NAME),
         fetchSheet(CONFIG.EVENTS_SHEET_NAME),
         fetchSheet(CONFIG.CURRICULUM_SHEET_NAME),
-        fetchSheet(CONFIG.ROSTER_SHEET_NAME).catch(() => []),
     ]);
 
     const volMap = {};
@@ -68,6 +77,7 @@ async function loadAdminData() {
             ...mkVol(name),
             discord: (r[1]||'').trim(),
             school:  (r[2]||'').trim(),
+            teams:   parseTeams(r[9]),  // col J = team selection from form
         };
     });
 
@@ -97,20 +107,6 @@ async function loadAdminData() {
         });
     });
 
-    const teamMap = {};
-    rosterRows.slice(1).forEach(r => {
-        [[(r[0]||'').trim(),'Curriculum'],[(r[2]||'').trim(),'Kitmaking'],[(r[4]||'').trim(),'In-Person']]
-            .forEach(([name, team]) => {
-                if (!name) return;
-                const key = name.toLowerCase();
-                if (!teamMap[key]) teamMap[key] = new Set();
-                teamMap[key].add(team);
-            });
-    });
-    Object.values(volMap).forEach(vol => {
-        const t = teamMap[vol.name.toLowerCase()];
-        vol.teams = t ? [...t] : [];
-    });
 
     adminData = Object.values(volMap).sort((a, b) => b.hours - a.hours);
     sortedData = [...adminData];
@@ -143,10 +139,15 @@ function renderTable(data) {
     }
     tbody.innerHTML = '';
     data.forEach(vol => {
+        const TEAM_STYLE = {
+            'Curriculum': { cls: 'curriculum', label: '📚 Curriculum' },
+            'Kitmaking':  { cls: 'kitmaking',  label: '🔧 Kit Assembly' },
+            'In-Person':  { cls: 'inperson',   label: '🎓 In-Person' },
+            'Media':      { cls: 'media',       label: '🎨 Media' },
+        };
         const badges = (vol.teams || []).map(team => {
-            const cls   = team === 'Curriculum' ? 'curriculum' : team === 'Kitmaking' ? 'kitmaking' : 'inperson';
-            const label = team === 'Curriculum' ? '📚 Curriculum' : team === 'Kitmaking' ? '🔧 Kitmaking' : '🎓 In-Person';
-            return `<span class="team-badge ${cls}">${label}</span>`;
+            const s = TEAM_STYLE[team] || { cls: 'media', label: team };
+            return `<span class="team-badge ${s.cls}">${s.label}</span>`;
         }).join('');
 
         const tr = document.createElement('tr');
