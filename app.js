@@ -52,12 +52,11 @@ function mkVol(name) {
 
 async function fetchData() {
     try {
-        const [volRows, eventRows, currRows, exRows, rosterRows] = await Promise.all([
+        const [volRows, eventRows, currRows, exRows] = await Promise.all([
             fetchSheet(CONFIG.SHEET_NAME),
             fetchSheet(CONFIG.EVENTS_SHEET_NAME),
             fetchSheet(CONFIG.CURRICULUM_SHEET_NAME),
             fetchSheet(CONFIG.EXCEPTIONS_SHEET_NAME).catch(() => []),
-            fetchSheet(CONFIG.ROSTER_SHEET_NAME).catch(() => []),
         ]);
 
         if (volRows.length < 1) throw new Error('Volunteers sheet is empty');
@@ -113,26 +112,6 @@ async function fetchData() {
                 volMap[key].curriculumHours+= hrs;
                 volMap[key].curriculumList.push({ name: currName, date, hours: hrs });
             });
-        });
-
-        // ── Roster: col A=Curriculum names, C=Kitmaking names, E=In-Person names ─
-        const teamMap = {};
-        rosterRows.slice(1).forEach(r => {
-            const pairs = [
-                [(r[0]||'').trim(), 'Curriculum'],
-                [(r[2]||'').trim(), 'Kitmaking'],
-                [(r[4]||'').trim(), 'In-Person'],
-            ];
-            pairs.forEach(([name, team]) => {
-                if (!name) return;
-                const key = name.toLowerCase();
-                if (!teamMap[key]) teamMap[key] = new Set();
-                teamMap[key].add(team);
-            });
-        });
-        Object.values(volMap).forEach(vol => {
-            const t = teamMap[vol.name.toLowerCase()];
-            vol.teams = t ? [...t] : [];
         });
 
         // ── Filter exceptions ────────────────────────────────────
@@ -334,23 +313,6 @@ function openModal(name) {
     document.getElementById('modal-hrs').textContent   = fmt(round1(vol.hours));
     document.getElementById('modal-evc').textContent   = vol.events;
     document.getElementById('modal-curr').textContent  = vol.curriculum;
-
-    // Hours breakdown
-    document.getElementById('hb-curriculum').textContent = fmt(round1(vol.curriculumHours));
-    document.getElementById('hb-assembly').textContent   = fmt(round1(vol.assemblyHours));
-    document.getElementById('hb-session').textContent    = fmt(round1(vol.sessionHours));
-
-    // Team badges
-    const teamsEl = document.getElementById('modal-teams');
-    teamsEl.innerHTML = '';
-    (vol.teams || []).forEach(team => {
-        const badge = document.createElement('span');
-        const cls   = team === 'Curriculum' ? 'curriculum' : team === 'Kitmaking' ? 'kitmaking' : 'inperson';
-        const label = team === 'Curriculum' ? '📚 Curriculum' : team === 'Kitmaking' ? '🔧 Kitmaking' : '🎓 In-Person';
-        badge.className = `team-badge ${cls}`;
-        badge.textContent = label;
-        teamsEl.appendChild(badge);
-    });
 
     // Events list (with assembly indicator)
     const evList = document.getElementById('modal-ev-list');

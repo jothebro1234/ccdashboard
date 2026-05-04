@@ -661,6 +661,17 @@ body {
     color: var(--textm); margin-top: 20px;
 }
 
+.admin-link {
+    display: inline-block;
+    margin-left: 10px;
+    color: rgba(255,255,255,0.12);
+    text-decoration: none;
+    font-size: 14px;
+    transition: color 0.2s;
+    vertical-align: middle;
+}
+.admin-link:hover { color: var(--textm); }
+
 /* ── FLOATING ACTION BUTTONS ─────────────────────────────────── */
 .fab-group {
     position: fixed;
@@ -768,39 +779,6 @@ body {
 }
 .modal-disc { font-size: 13px; color: var(--blue); margin-top: 4px; }
 .modal-school { font-size: 12px; color: var(--cyan); margin-top: 3px; opacity: 0.85; }
-.modal-teams { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
-.team-badge {
-    font-size: 10px; font-weight: 600;
-    padding: 3px 9px; border-radius: 100px;
-    white-space: nowrap;
-}
-.team-badge.curriculum { background: var(--blue-g);   color: var(--blue);   border: 1px solid rgba(56,189,248,0.25); }
-.team-badge.kitmaking  { background: var(--bronze-g); color: var(--bronze); border: 1px solid rgba(196,124,63,0.25); }
-.team-badge.inperson   { background: var(--green-g);  color: var(--green);  border: 1px solid rgba(52,211,153,0.25); }
-
-/* Hours breakdown */
-.hrs-breakdown {
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-}
-.hb-title {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 9px; font-weight: 700;
-    letter-spacing: 2px; color: var(--textm);
-    margin-bottom: 10px;
-}
-.hb-items { display: flex; align-items: center; }
-.hb-item  { flex: 1; text-align: center; }
-.hb-sep   { width: 1px; height: 30px; background: var(--border); flex-shrink: 0; }
-.hb-val {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 15px; font-weight: 700; line-height: 1;
-}
-.hb-curriculum { color: var(--blue); }
-.hb-assembly   { color: var(--bronze); }
-.hb-session    { color: var(--green); }
-.hb-lbl { font-size: 10px; color: var(--textm); margin-top: 4px; }
 
 .modal-stats {
     display: flex; align-items: center;
