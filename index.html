@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volunteer Leaderboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<canvas id="stars"></canvas>
+
+<div class="app">
+
+    <!-- ── HEADER ─────────────────────────────────────────────── -->
+    <header class="header">
+        <div class="live-badge">
+            <span class="live-pulse"></span>
+            <span class="live-text">LIVE</span>
+        </div>
+
+        <div class="header-main">
+            <div class="trophy">🏆</div>
+            <h1 class="title">
+                <span class="org-name" id="org-name">VOLUNTEER</span>
+                <span class="title-sub">LEADERBOARD</span>
+            </h1>
+        </div>
+
+        <div class="refresh-widget">
+            <div class="ring-wrap">
+                <svg viewBox="0 0 36 36">
+                    <circle class="ring-track" cx="18" cy="18" r="15.9"/>
+                    <circle class="ring-fill" id="ring-fill" cx="18" cy="18" r="15.9" stroke-dasharray="100 100"/>
+                </svg>
+                <span id="countdown" class="ring-count">60</span>
+            </div>
+            <span class="refresh-lbl">REFRESH</span>
+        </div>
+    </header>
+
+    <!-- ── STATS ROW ───────────────────────────────────────────── -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <span class="stat-icon">👥</span>
+            <div>
+                <div class="stat-num" id="stat-volunteers">—</div>
+                <div class="stat-lbl">Volunteers</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">⏱️</span>
+            <div>
+                <div class="stat-num" id="stat-hours">—</div>
+                <div class="stat-lbl">Total Hours</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <span class="stat-icon">📅</span>
+            <div>
+                <div class="stat-num" id="stat-events">—</div>
+                <div class="stat-lbl">Events Logged</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── TABS ────────────────────────────────────────────────── -->
+    <div class="tabs">
+        <button class="tab active" data-cat="hours">⏱ Most Hours</button>
+        <button class="tab" data-cat="events">🎯 Most Events</button>
+    </div>
+
+    <!-- ── PODIUM (top 3) ──────────────────────────────────────── -->
+    <div class="podium-grid" id="podium"></div>
+
+    <!-- ── LIST (rank 4+) ─────────────────────────────────────── -->
+    <div class="list-section">
+        <div class="list-header">
+            <div class="search-wrap">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input id="search" type="text" placeholder="Search volunteer...">
+            </div>
+            <span class="list-count" id="list-count"></span>
+        </div>
+        <div id="leaderboard-list"></div>
+    </div>
+
+    <footer class="footer">
+        Updated <span id="last-updated">—</span> · Synced from Google Sheets
+    </footer>
+
+</div>
+
+<!-- ── LOADING OVERLAY ──────────────────────────────────────── -->
+<div class="loading-overlay" id="loading">
+    <div class="loader-inner">
+        <div class="loader-ring"></div>
+        <div class="loader-text">Loading Leaderboard</div>
+    </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
