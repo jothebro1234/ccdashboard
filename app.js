@@ -223,12 +223,14 @@ function renderPodium(sorted) {
         const statVal = getStatVal(vol, currentCategory);
         const statLbl = getStatLbl(currentCategory);
 
+        const certLevel = getCertLevel(vol);
         const card = document.createElement('div');
-        card.className = `podium-card p${rank}`;
+        card.className = `podium-card p${rank}${certLevel ? ` is-cert-${certLevel}` : ''}`;
         card.innerHTML = `
             <div class="pod-rank">#${rank}</div>
             <div class="pod-av">${avHTML(vol, rank === 1 ? 80 : 70)}</div>
             <div class="pod-name">${esc(vol.name)}</div>
+            ${certLevel ? `<div class="pod-cert">${certBadgeHTML(certLevel)}</div>` : ''}
             ${vol.discord && CONFIG.SHOW_DISCORD ? `<div class="pod-disc">@${esc(vol.discord)}</div>` : ''}
             ${vol.school ? `<div class="pod-school">🏫 ${esc(vol.school)}</div>` : ''}
             <div class="pod-stat" data-v="${statVal}">0</div>
@@ -271,15 +273,19 @@ function renderList(sorted) {
             else               changeHTML = `<span class="lb-change same">—</span>`;
         }
 
+        const certLevel = getCertLevel(vol);
         const item = document.createElement('div');
-        item.className = 'lb-item';
+        item.className = `lb-item${certLevel ? ` is-cert-${certLevel}` : ''}`;
         item.style.animationDelay = `${Math.min(i * 22, 350)}ms`;
         item.dataset.name = vol.name.toLowerCase();
         item.innerHTML = `
             <div class="lb-rank">${rank}</div>
             <div class="lb-av">${avHTML(vol, 40)}</div>
             <div class="lb-info">
-                <div class="lb-name">${esc(vol.name)}</div>
+                <div class="lb-name-row">
+                    <span class="lb-name">${esc(vol.name)}</span>
+                    ${certBadgeHTML(certLevel)}
+                </div>
                 ${vol.discord && CONFIG.SHOW_DISCORD ? `<div class="lb-disc">@${esc(vol.discord)}</div>` : ''}
                 ${vol.school ? `<div class="lb-school">🏫 ${esc(vol.school)}</div>` : ''}
             </div>
@@ -310,6 +316,7 @@ function openModal(name) {
     document.getElementById('modal-name').textContent  = vol.name;
     document.getElementById('modal-disc').textContent  = vol.discord ? `@${vol.discord}` : '';
     document.getElementById('modal-school').textContent= vol.school  ? `🏫 ${vol.school}` : '';
+    document.getElementById('modal-cert').innerHTML    = certBadgeHTML(getCertLevel(vol));
     document.getElementById('modal-hrs').textContent   = fmt(round1(vol.hours));
     document.getElementById('modal-evc').textContent   = vol.events;
     document.getElementById('modal-curr').textContent  = vol.curriculum;
@@ -520,6 +527,20 @@ function showFetchError(msg) {
 // UTILS
 // ═══════════════════════════════════════════════════════════════
 function fmt(n) { return typeof n === 'number' && !isNaN(n) ? n.toLocaleString() : String(n); }
+
+function getCertLevel(vol) {
+    if (vol.hours >= 100) return 'platinum';
+    if (vol.hours >= 30)  return 'certificate';
+    return null;
+}
+
+function certBadgeHTML(level) {
+    if (level === 'platinum')
+        return `<span class="cert-badge cert-platinum">✨ Platinum Certificate</span>`;
+    if (level === 'certificate')
+        return `<span class="cert-badge cert-gold">🏅 Certificate Eligible</span>`;
+    return '';
+}
 
 function esc(s) {
     return String(s)
