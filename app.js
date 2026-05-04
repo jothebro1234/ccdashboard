@@ -14,10 +14,7 @@ function runIntro() {
     const intro = document.getElementById('intro');
     setTimeout(() => {
         intro.classList.add('reveal');
-        setTimeout(() => {
-            intro.style.display = 'none';
-            animatePageIn();
-        }, 1000);
+        setTimeout(() => { intro.style.display = 'none'; animatePageIn(); }, 1000);
     }, 2900);
 }
 
@@ -37,67 +34,110 @@ async function fetchSheet(name) {
     return parseCSV(await res.text());
 }
 
+// Detect checkmarks / TRUE values from Google Sheets checkboxes
+function isChecked(val) {
+    const v = (val || '').trim().toUpperCase();
+    return v === 'TRUE' || v === 'YES' || v === '1' || v === 'X' || v === '✓' || v === '✔' || v === '☑';
+}
+
+function mkVol(name) {
+    return {
+        name, discord: '', school: '', avatar: '',
+        hours: 0, events: 0, curriculum: 0,
+        curriculumHours: 0, assemblyHours: 0, sessionHours: 0,
+        teams: [],
+        eventList: [], curriculumList: [],
+    };
+}
+
 async function fetchData() {
     try {
-        const [volRows, eventRows, currRows, exRows] = await Promise.all([
+        const [volRows, eventRows, currRows, exRows, rosterRows] = await Promise.all([
             fetchSheet(CONFIG.SHEET_NAME),
             fetchSheet(CONFIG.EVENTS_SHEET_NAME),
             fetchSheet(CONFIG.CURRICULUM_SHEET_NAME),
             fetchSheet(CONFIG.EXCEPTIONS_SHEET_NAME).catch(() => []),
+            fetchSheet(CONFIG.ROSTER_SHEET_NAME).catch(() => []),
         ]);
 
+        if (volRows.length < 1) throw new Error('Volunteers sheet is empty');
+
+        // ── Exceptions ──────────────────────────────────────────
         const exceptions = new Set(
             exRows.slice(1).map(r => (r[0]||'').trim().toLowerCase()).filter(Boolean)
         );
 
-        if (volRows.length < 1) throw new Error('Volunteers sheet is empty');
-
-        // Volunteers sheet: Name | Discord | School | Avatar
+        // ── Volunteers: Name | Discord | School | Avatar ─────────
         const volMap = {};
         volRows.slice(1).forEach(r => {
             const name = (r[0] || '').trim();
             if (!name) return;
             volMap[name.toLowerCase()] = {
-                name,
-                discord:        (r[1] || '').trim(),
-                school:         (r[2] || '').trim(),
-                avatar:         (r[3] || '').trim(),
-                hours:      0,  events:      0,  curriculum:      0,
-                eventList: [],  curriculumList: [],
+                ...mkVol(name),
+                discord: (r[1]||'').trim(),
+                school:  (r[2]||'').trim(),
+                avatar:  (r[3]||'').trim(),
             };
         });
 
-        // Events sheet: Event Name | Date | Hours | Attendees
+        // ── Events: Event Name | Date | Hours | Attendees | Assembly? ─
         eventRows.slice(1).forEach(r => {
-            const evName    = (r[0] || '').trim();
-            const date      = (r[1] || '').trim();
-            const hrs       = parseFloat(r[2]) || 0;
-            const attendees = (r[3] || '').split(',').map(n => n.trim()).filter(Boolean);
+            const evName     = (r[0]||'').trim();
+            const date       = (r[1]||'').trim();
+            const hrs        = parseFloat(r[2]) || 0;
+            const attendees  = (r[3]||'').split(',').map(n => n.trim()).filter(Boolean);
+            const isAssembly = isChecked(r[4]); // col E: Assembly?
+
             attendees.forEach(att => {
                 const key = att.toLowerCase();
-                if (!volMap[key]) volMap[key] = { name:att, discord:'', school:'', avatar:'', hours:0, events:0, curriculum:0, eventList:[], curriculumList:[] };
+                if (!volMap[key]) volMap[key] = mkVol(att);
                 volMap[key].hours  += hrs;
                 volMap[key].events += 1;
-                volMap[key].eventList.push({ name: evName, date, hours: hrs });
+                if (isAssembly) volMap[key].assemblyHours += hrs;
+                else            volMap[key].sessionHours  += hrs;
+                volMap[key].eventList.push({ name: evName, date, hours: hrs, assembly: isAssembly });
             });
         });
 
-        // Curriculum sheet: Curriculum Name | Date | Hours | Contributors
+        // ── Curriculum: Curriculum Name | Date | Hours | Contributors ─
         currRows.slice(1).forEach(r => {
-            const currName = (r[0] || '').trim();
-            const date     = (r[1] || '').trim();
+            const currName = (r[0]||'').trim();
+            const date     = (r[1]||'').trim();
             const hrs      = parseFloat(r[2]) || 0;
-            const contribs = (r[3] || '').split(',').map(n => n.trim()).filter(Boolean);
+            const contribs = (r[3]||'').split(',').map(n => n.trim()).filter(Boolean);
             contribs.forEach(contrib => {
                 const key = contrib.toLowerCase();
-                if (!volMap[key]) volMap[key] = { name:contrib, discord:'', school:'', avatar:'', hours:0, events:0, curriculum:0, eventList:[], curriculumList:[] };
-                volMap[key].curriculum += 1;
-                volMap[key].hours      += hrs;
+                if (!volMap[key]) volMap[key] = mkVol(contrib);
+                volMap[key].curriculum     += 1;
+                volMap[key].hours          += hrs;
+                volMap[key].curriculumHours+= hrs;
                 volMap[key].curriculumList.push({ name: currName, date, hours: hrs });
             });
         });
 
+        // ── Roster: col A=Curriculum names, C=Kitmaking names, E=In-Person names ─
+        const teamMap = {};
+        rosterRows.slice(1).forEach(r => {
+            const pairs = [
+                [(r[0]||'').trim(), 'Curriculum'],
+                [(r[2]||'').trim(), 'Kitmaking'],
+                [(r[4]||'').trim(), 'In-Person'],
+            ];
+            pairs.forEach(([name, team]) => {
+                if (!name) return;
+                const key = name.toLowerCase();
+                if (!teamMap[key]) teamMap[key] = new Set();
+                teamMap[key].add(team);
+            });
+        });
+        Object.values(volMap).forEach(vol => {
+            const t = teamMap[vol.name.toLowerCase()];
+            vol.teams = t ? [...t] : [];
+        });
+
+        // ── Filter exceptions ────────────────────────────────────
         allData = Object.values(volMap).filter(v => !exceptions.has(v.name.toLowerCase()));
+
         render(allData);
         hideLoading();
         document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
@@ -118,7 +158,7 @@ async function fetchAnnouncement() {
             wrap.style.display = 'block';
             wrap.classList.add('in');
         }
-    } catch (_) { /* optional — fail silently */ }
+    } catch (_) { /* optional */ }
 }
 
 function parseCSV(raw) {
@@ -287,27 +327,50 @@ function openModal(name) {
     const vol = allData.find(v => v.name.toLowerCase() === name.toLowerCase());
     if (!vol) return;
 
-    document.getElementById('modal-av').innerHTML    = avHTML(vol, 58);
-    document.getElementById('modal-name').textContent = vol.name;
-    document.getElementById('modal-disc').textContent = vol.discord ? `@${vol.discord}` : '';
-    document.getElementById('modal-school').textContent = vol.school ? `🏫 ${vol.school}` : '';
-    document.getElementById('modal-hrs').textContent  = fmt(Math.round(vol.hours * 10) / 10);
-    document.getElementById('modal-evc').textContent  = vol.events;
-    document.getElementById('modal-curr').textContent = vol.curriculum;
+    document.getElementById('modal-av').innerHTML     = avHTML(vol, 58);
+    document.getElementById('modal-name').textContent  = vol.name;
+    document.getElementById('modal-disc').textContent  = vol.discord ? `@${vol.discord}` : '';
+    document.getElementById('modal-school').textContent= vol.school  ? `🏫 ${vol.school}` : '';
+    document.getElementById('modal-hrs').textContent   = fmt(round1(vol.hours));
+    document.getElementById('modal-evc').textContent   = vol.events;
+    document.getElementById('modal-curr').textContent  = vol.curriculum;
 
-    // Events list
+    // Hours breakdown
+    document.getElementById('hb-curriculum').textContent = fmt(round1(vol.curriculumHours));
+    document.getElementById('hb-assembly').textContent   = fmt(round1(vol.assemblyHours));
+    document.getElementById('hb-session').textContent    = fmt(round1(vol.sessionHours));
+
+    // Team badges
+    const teamsEl = document.getElementById('modal-teams');
+    teamsEl.innerHTML = '';
+    (vol.teams || []).forEach(team => {
+        const badge = document.createElement('span');
+        const cls   = team === 'Curriculum' ? 'curriculum' : team === 'Kitmaking' ? 'kitmaking' : 'inperson';
+        const label = team === 'Curriculum' ? '📚 Curriculum' : team === 'Kitmaking' ? '🔧 Kitmaking' : '🎓 In-Person';
+        badge.className = `team-badge ${cls}`;
+        badge.textContent = label;
+        teamsEl.appendChild(badge);
+    });
+
+    // Events list (with assembly indicator)
     const evList = document.getElementById('modal-ev-list');
     evList.innerHTML = '';
     if (vol.eventList && vol.eventList.length > 0) {
         [...vol.eventList]
             .sort((a, b) => new Date(b.date) - new Date(a.date))
             .forEach(ev => {
+                const dotColor = ev.assembly
+                    ? 'var(--bronze);box-shadow:0 0 0 3px rgba(196,124,63,0.15)'
+                    : 'var(--green);box-shadow:0 0 0 3px rgba(52,211,153,0.15)';
+                const tag = ev.assembly
+                    ? `<span style="font-size:9px;color:var(--bronze);background:var(--bronze-g);padding:1px 5px;border-radius:4px;margin-left:4px">🔧 Assembly</span>`
+                    : `<span style="font-size:9px;color:var(--green);background:var(--green-g);padding:1px 5px;border-radius:4px;margin-left:4px">🎓 Session</span>`;
                 const item = document.createElement('div');
                 item.className = 'm-ev-item';
                 item.innerHTML = `
-                    <div class="m-ev-dot"></div>
+                    <div class="m-ev-dot" style="background:${dotColor}"></div>
                     <div class="m-ev-info">
-                        <div class="m-ev-name">${esc(ev.name)}</div>
+                        <div class="m-ev-name">${esc(ev.name)}${tag}</div>
                         <div class="m-ev-date">${fmtDate(ev.date)}</div>
                     </div>
                     <div class="m-ev-hrs">${ev.hours % 1 === 0 ? ev.hours : ev.hours.toFixed(1)} hrs</div>
@@ -357,6 +420,8 @@ function fmtDate(str) {
     const d = new Date(str);
     return isNaN(d) ? str : d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 }
+
+function round1(n) { return Math.round((n || 0) * 10) / 10; }
 
 // ═══════════════════════════════════════════════════════════════
 // AVATARS

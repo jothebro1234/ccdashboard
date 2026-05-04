@@ -5,6 +5,7 @@ const CONFIG = {
     CURRICULUM_SHEET_NAME:   'Curriculum',      // columns: Curriculum Name | Date | Contributors (comma-sep)
     ANNOUNCEMENTS_SHEET_NAME:'Announcements',   // single cell A1 = announcement text
     EXCEPTIONS_SHEET_NAME:   'Exceptions',      // column A: names to hide from leaderboard
+    ROSTER_SHEET_NAME:       'Roster',          // col A=Curriculum names, C=Kitmaking names, E=In-Person names
     ORG_NAME:                'Curio Crate',
     REFRESH_INTERVAL:        60,
     SHOW_DISCORD:            true,
