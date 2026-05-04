@@ -2,96 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="0; url=admin/">
     <title>Admin — Curio Crate</title>
-    <link rel="icon" type="image/png" href="cclogo.png">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="admin.css">
 </head>
 <body>
-
-<div class="bg-wrap" aria-hidden="true">
-    <div class="blob b1"></div>
-    <div class="blob b2"></div>
-    <div class="blob b3"></div>
-    <div class="blob b4"></div>
-    <div class="grid-overlay"></div>
-</div>
-
-<!-- Lock screen -->
-<div class="lock-screen" id="lock-screen">
-    <div class="lock-card">
-        <div class="lock-icon">🔒</div>
-        <div class="lock-title">ADMIN ACCESS</div>
-        <div class="lock-sub">Enter the admin code to continue</div>
-        <input type="password" id="code-input" class="lock-input" placeholder="Enter code..." autocomplete="off">
-        <button id="code-submit" class="lock-btn">Unlock</button>
-        <div class="lock-err" id="lock-err"></div>
-    </div>
-</div>
-
-<!-- Admin content -->
-<div class="admin-wrap" id="admin-app" style="display:none">
-
-    <div class="admin-header">
-        <div class="admin-header-left">
-            <img src="cclogo.png" alt="" class="admin-logo" onerror="this.style.display='none'">
-            <div>
-                <div class="admin-title">ADMIN DASHBOARD</div>
-                <div class="admin-sub">Hours Breakdown &amp; Roster — visible to you only</div>
-            </div>
-        </div>
-        <div class="admin-header-right">
-            <span class="admin-updated" id="admin-updated"></span>
-            <a href="index.html" class="back-btn">← Leaderboard</a>
-            <button class="lock-out-btn" id="lock-out-btn" title="Lock">🔒</button>
-        </div>
-    </div>
-
-    <div class="admin-summary" id="admin-summary"></div>
-
-    <div class="admin-controls">
-        <div class="admin-search-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" style="color:var(--textm);flex-shrink:0">
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-            </svg>
-            <input type="text" id="admin-search" placeholder="Search volunteer...">
-        </div>
-        <select id="sort-by" class="admin-select">
-            <option value="total">Sort: Total Hours</option>
-            <option value="curriculum">Sort: Curriculum Hrs</option>
-            <option value="assembly">Sort: Kit Assembly Hrs</option>
-            <option value="session">Sort: In-Person Hrs</option>
-            <option value="events">Sort: Events</option>
-            <option value="name">Sort: Name A–Z</option>
-        </select>
-    </div>
-
-    <div class="admin-table-wrap">
-        <table class="admin-table">
-            <thead>
-                <tr>
-                    <th class="col-name">Volunteer</th>
-                    <th class="col-school">School</th>
-                    <th class="col-teams">Teams</th>
-                    <th class="col-num" style="color:var(--blue)">📚 Curriculum</th>
-                    <th class="col-num" style="color:var(--bronze)">🔧 Kit Assembly</th>
-                    <th class="col-num" style="color:var(--green)">🎓 In-Person</th>
-                    <th class="col-num" style="color:var(--purple)">Total Hrs</th>
-                    <th class="col-num">Events</th>
-                </tr>
-            </thead>
-            <tbody id="admin-tbody">
-                <tr><td colspan="8" class="admin-loading">Loading data…</td></tr>
-            </tbody>
-        </table>
-    </div>
-
-</div>
-
-<script src="config.js"></script>
-<script src="admin.js"></script>
+    <a href="admin/">Click here if not redirected.</a>
 </body>
 </html>
