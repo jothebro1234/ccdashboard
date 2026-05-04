@@ -10,8 +10,6 @@
 </head>
 <body>
 
-<canvas id="stars"></canvas>
-
 <div class="app">
 
     <!-- ── HEADER ─────────────────────────────────────────────── -->
@@ -44,23 +42,23 @@
     <!-- ── STATS ROW ───────────────────────────────────────────── -->
     <div class="stats-row">
         <div class="stat-card">
-            <span class="stat-icon">👥</span>
+            <div class="stat-icon-wrap sky">👥</div>
             <div>
-                <div class="stat-num" id="stat-volunteers">—</div>
+                <div class="stat-num sky" id="stat-volunteers">—</div>
                 <div class="stat-lbl">Volunteers</div>
             </div>
         </div>
         <div class="stat-card">
-            <span class="stat-icon">⏱️</span>
+            <div class="stat-icon-wrap purple">⏱️</div>
             <div>
-                <div class="stat-num" id="stat-hours">—</div>
+                <div class="stat-num purple" id="stat-hours">—</div>
                 <div class="stat-lbl">Total Hours</div>
             </div>
         </div>
         <div class="stat-card">
-            <span class="stat-icon">📅</span>
+            <div class="stat-icon-wrap ocean">📅</div>
             <div>
-                <div class="stat-num" id="stat-events">—</div>
+                <div class="stat-num ocean" id="stat-events">—</div>
                 <div class="stat-lbl">Events Logged</div>
             </div>
         </div>
@@ -93,6 +91,43 @@
         Updated <span id="last-updated">—</span> · Synced from Google Sheets
     </footer>
 
+</div>
+
+<!-- ── VOLUNTEER PROFILE MODAL ─────────────────────────────────── -->
+<div class="modal-overlay" id="modal-overlay">
+    <div class="modal" id="modal" role="dialog" aria-modal="true">
+
+        <button class="modal-close" id="modal-close" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+        </button>
+
+        <div class="modal-head">
+            <div class="modal-avatar" id="modal-avatar"></div>
+            <div class="modal-identity">
+                <div class="modal-name" id="modal-name"></div>
+                <div class="modal-discord" id="modal-discord"></div>
+            </div>
+        </div>
+
+        <div class="modal-stats">
+            <div class="modal-stat">
+                <div class="modal-stat-val sky" id="modal-hours">0</div>
+                <div class="modal-stat-lbl">Total Hours</div>
+            </div>
+            <div class="modal-divider"></div>
+            <div class="modal-stat">
+                <div class="modal-stat-val purple" id="modal-ev-count">0</div>
+                <div class="modal-stat-lbl">Events Attended</div>
+            </div>
+        </div>
+
+        <div class="modal-section-title">Events History</div>
+        <div class="modal-event-list" id="modal-event-list"></div>
+
+    </div>
 </div>
 
 <!-- ── LOADING OVERLAY ──────────────────────────────────────── -->
