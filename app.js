@@ -12,8 +12,6 @@ let timerVal        = CONFIG.REFRESH_INTERVAL;
 // ═══════════════════════════════════════════════════════════════
 function runIntro() {
     const intro = document.getElementById('intro');
-
-    // After intro plays, do the curtain-rise reveal
     setTimeout(() => {
         intro.classList.add('reveal');
         setTimeout(() => {
@@ -24,8 +22,7 @@ function runIntro() {
 }
 
 function animatePageIn() {
-    const sections = document.querySelectorAll('[data-ani]');
-    sections.forEach((el, i) => {
+    document.querySelectorAll('[data-ani]').forEach((el, i) => {
         setTimeout(() => el.classList.add('in'), i * 110);
     });
 }
@@ -42,23 +39,30 @@ async function fetchSheet(name) {
 
 async function fetchData() {
     try {
-        const [volRows, eventRows] = await Promise.all([
+        const [volRows, eventRows, currRows] = await Promise.all([
             fetchSheet(CONFIG.SHEET_NAME),
             fetchSheet(CONFIG.EVENTS_SHEET_NAME),
+            fetchSheet(CONFIG.CURRICULUM_SHEET_NAME),
         ]);
 
         if (volRows.length < 1) throw new Error('Volunteers sheet is empty');
 
+        // Volunteers sheet: Name | Discord | School | Avatar
         const volMap = {};
         volRows.slice(1).forEach(r => {
             const name = (r[0] || '').trim();
             if (!name) return;
             volMap[name.toLowerCase()] = {
-                name, discord: (r[1]||'').trim(), avatar: (r[2]||'').trim(),
-                hours: 0, events: 0, eventList: [],
+                name,
+                discord:        (r[1] || '').trim(),
+                school:         (r[2] || '').trim(),
+                avatar:         (r[3] || '').trim(),
+                hours:      0,  events:      0,  curriculum:      0,
+                eventList: [],  curriculumList: [],
             };
         });
 
+        // Events sheet: Event Name | Date | Hours | Attendees
         eventRows.slice(1).forEach(r => {
             const evName    = (r[0] || '').trim();
             const date      = (r[1] || '').trim();
@@ -66,10 +70,23 @@ async function fetchData() {
             const attendees = (r[3] || '').split(',').map(n => n.trim()).filter(Boolean);
             attendees.forEach(att => {
                 const key = att.toLowerCase();
-                if (!volMap[key]) volMap[key] = { name:att, discord:'', avatar:'', hours:0, events:0, eventList:[] };
+                if (!volMap[key]) volMap[key] = { name:att, discord:'', school:'', avatar:'', hours:0, events:0, curriculum:0, eventList:[], curriculumList:[] };
                 volMap[key].hours  += hrs;
                 volMap[key].events += 1;
                 volMap[key].eventList.push({ name: evName, date, hours: hrs });
+            });
+        });
+
+        // Curriculum sheet: Curriculum Name | Date | Contributors
+        currRows.slice(1).forEach(r => {
+            const currName = (r[0] || '').trim();
+            const date     = (r[1] || '').trim();
+            const contribs = (r[2] || '').split(',').map(n => n.trim()).filter(Boolean);
+            contribs.forEach(contrib => {
+                const key = contrib.toLowerCase();
+                if (!volMap[key]) volMap[key] = { name:contrib, discord:'', school:'', avatar:'', hours:0, events:0, curriculum:0, eventList:[], curriculumList:[] };
+                volMap[key].curriculum += 1;
+                volMap[key].curriculumList.push({ name: currName, date });
             });
         });
 
@@ -92,11 +109,9 @@ async function fetchAnnouncement() {
             document.getElementById('ann-text').textContent = text;
             const wrap = document.getElementById('ann-wrap');
             wrap.style.display = 'block';
-            wrap.classList.add('in'); // animate in if page already loaded
+            wrap.classList.add('in');
         }
-    } catch (_) {
-        // Announcement sheet is optional — fail silently
-    }
+    } catch (_) { /* optional — fail silently */ }
 }
 
 function parseCSV(raw) {
@@ -138,15 +153,35 @@ function render(data) {
 }
 
 function sortData(data, cat) {
-    return [...data].sort((a, b) => cat === 'hours' ? b.hours - a.hours : b.events - a.events);
+    return [...data].sort((a, b) => {
+        if (cat === 'hours')      return b.hours      - a.hours;
+        if (cat === 'events')     return b.events     - a.events;
+        if (cat === 'curriculum') return b.curriculum - a.curriculum;
+        return 0;
+    });
+}
+
+function getStatVal(vol, cat) {
+    if (cat === 'hours')      return vol.hours;
+    if (cat === 'events')     return vol.events;
+    if (cat === 'curriculum') return vol.curriculum;
+    return 0;
+}
+
+function getStatLbl(cat, short = false) {
+    if (cat === 'hours')      return short ? 'hrs'       : 'hours';
+    if (cat === 'events')     return short ? 'events'    : 'events';
+    if (cat === 'curriculum') return short ? 'developed' : 'developed';
+    return '';
 }
 
 function renderStats(data) {
     animateNum('stat-volunteers', data.length);
-    animateNum('stat-hours',      Math.round(data.reduce((s, v) => s + v.hours,  0)));
+    animateNum('stat-hours',      Math.round(data.reduce((s, v) => s + v.hours, 0)));
     animateNum('stat-events',     data.reduce((s, v) => s + v.events, 0));
 }
 
+// ── Podium ─────────────────────────────────────────────────────
 function renderPodium(sorted) {
     const grid = document.getElementById('podium');
     grid.innerHTML = '';
@@ -158,8 +193,8 @@ function renderPodium(sorted) {
     slots.forEach((vol, i) => {
         if (!vol) { grid.appendChild(document.createElement('div')); return; }
         const rank    = ranks[i];
-        const statVal = currentCategory === 'hours' ? vol.hours : vol.events;
-        const statLbl = currentCategory === 'hours' ? 'hours' : 'events';
+        const statVal = getStatVal(vol, currentCategory);
+        const statLbl = getStatLbl(currentCategory);
 
         const card = document.createElement('div');
         card.className = `podium-card p${rank}`;
@@ -168,6 +203,7 @@ function renderPodium(sorted) {
             <div class="pod-av">${avHTML(vol, rank === 1 ? 80 : 70)}</div>
             <div class="pod-name">${esc(vol.name)}</div>
             ${vol.discord && CONFIG.SHOW_DISCORD ? `<div class="pod-disc">@${esc(vol.discord)}</div>` : ''}
+            ${vol.school ? `<div class="pod-school">🏫 ${esc(vol.school)}</div>` : ''}
             <div class="pod-stat" data-v="${statVal}">0</div>
             <div class="pod-stat-lbl">${statLbl}</div>
         `;
@@ -177,6 +213,7 @@ function renderPodium(sorted) {
     });
 }
 
+// ── List (rank 4+) ──────────────────────────────────────────────
 function renderList(sorted) {
     const container = document.getElementById('leaderboard-list');
     const rest = sorted.slice(3);
@@ -195,8 +232,8 @@ function renderList(sorted) {
 
     rest.forEach((vol, i) => {
         const rank    = i + 4;
-        const statVal = currentCategory === 'hours' ? vol.hours : vol.events;
-        const statLbl = currentCategory === 'hours' ? 'hrs' : 'events';
+        const statVal = getStatVal(vol, currentCategory);
+        const statLbl = getStatLbl(currentCategory, true);
         const prev    = previousRanks[vol.name];
 
         let changeHTML = '';
@@ -217,6 +254,7 @@ function renderList(sorted) {
             <div class="lb-info">
                 <div class="lb-name">${esc(vol.name)}</div>
                 ${vol.discord && CONFIG.SHOW_DISCORD ? `<div class="lb-disc">@${esc(vol.discord)}</div>` : ''}
+                ${vol.school ? `<div class="lb-school">🏫 ${esc(vol.school)}</div>` : ''}
             </div>
             ${changeHTML}
             <div class="lb-stat">
@@ -241,15 +279,17 @@ function openModal(name) {
     const vol = allData.find(v => v.name.toLowerCase() === name.toLowerCase());
     if (!vol) return;
 
-    document.getElementById('modal-av').innerHTML      = avHTML(vol, 58);
-    document.getElementById('modal-name').textContent  = vol.name;
-    document.getElementById('modal-disc').textContent  = vol.discord ? `@${vol.discord}` : '';
-    document.getElementById('modal-hrs').textContent   = fmt(Math.round(vol.hours * 10) / 10);
-    document.getElementById('modal-evc').textContent   = vol.events;
+    document.getElementById('modal-av').innerHTML    = avHTML(vol, 58);
+    document.getElementById('modal-name').textContent = vol.name;
+    document.getElementById('modal-disc').textContent = vol.discord ? `@${vol.discord}` : '';
+    document.getElementById('modal-school').textContent = vol.school ? `🏫 ${vol.school}` : '';
+    document.getElementById('modal-hrs').textContent  = fmt(Math.round(vol.hours * 10) / 10);
+    document.getElementById('modal-evc').textContent  = vol.events;
+    document.getElementById('modal-curr').textContent = vol.curriculum;
 
-    const list = document.getElementById('modal-ev-list');
-    list.innerHTML = '';
-
+    // Events list
+    const evList = document.getElementById('modal-ev-list');
+    evList.innerHTML = '';
     if (vol.eventList && vol.eventList.length > 0) {
         [...vol.eventList]
             .sort((a, b) => new Date(b.date) - new Date(a.date))
@@ -264,10 +304,35 @@ function openModal(name) {
                     </div>
                     <div class="m-ev-hrs">${ev.hours % 1 === 0 ? ev.hours : ev.hours.toFixed(1)} hrs</div>
                 `;
-                list.appendChild(item);
+                evList.appendChild(item);
             });
     } else {
-        list.innerHTML = '<div class="m-empty">No events recorded yet.</div>';
+        evList.innerHTML = '<div class="m-empty">No events recorded yet.</div>';
+    }
+
+    // Curriculum list
+    const currTitle = document.getElementById('modal-curr-title');
+    const currList  = document.getElementById('modal-curr-list');
+    currList.innerHTML = '';
+    if (vol.curriculumList && vol.curriculumList.length > 0) {
+        currTitle.style.display = '';
+        [...vol.curriculumList]
+            .sort((a, b) => new Date(b.date) - new Date(a.date))
+            .forEach(c => {
+                const item = document.createElement('div');
+                item.className = 'm-ev-item';
+                item.innerHTML = `
+                    <div class="m-ev-dot" style="background:var(--cyan);box-shadow:0 0 0 3px rgba(34,211,238,0.15)"></div>
+                    <div class="m-ev-info">
+                        <div class="m-ev-name">${esc(c.name)}</div>
+                        <div class="m-ev-date">${fmtDate(c.date)}</div>
+                    </div>
+                    <div class="m-ev-hrs" style="color:var(--cyan)">📚</div>
+                `;
+                currList.appendChild(item);
+            });
+    } else {
+        currTitle.style.display = 'none';
     }
 
     document.getElementById('modal-overlay').classList.add('open');
@@ -331,8 +396,7 @@ function animateNum(id, target, dur = 700) {
     const start = Date.now();
     const tick = () => {
         const p = Math.min((Date.now() - start) / dur, 1);
-        const e = 1 - Math.pow(1-p, 3);
-        el.textContent = fmt(Math.round(from + (target - from) * e));
+        el.textContent = fmt(Math.round(from + (target - from) * (1 - Math.pow(1-p, 3))));
         if (p < 1) requestAnimationFrame(tick);
         else el.textContent = fmt(target);
     };
@@ -413,7 +477,7 @@ function showFetchError(msg) {
             <div class="err-icon">⚠️</div>
             <h3>Could not load data</h3>
             <p>${esc(msg)}</p>
-            <p style="margin-top:12px">Check your Sheet ID in <code>config.js</code> and make sure both sheets are shared publicly.</p>
+            <p style="margin-top:12px">Check your Sheet ID in <code>config.js</code> and make sure all sheets are shared publicly.</p>
         </div>`;
 }
 
@@ -432,21 +496,18 @@ function esc(s) {
 // INIT
 // ═══════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-    // Wire up FAB links from config
     document.getElementById('fab-join').href = CONFIG.JOIN_URL;
     document.getElementById('fab-ig').href   = CONFIG.INSTAGRAM_URL;
 
     setupTabs();
     setupSearch();
 
-    // Modal close
     document.getElementById('modal-close').addEventListener('click', closeModal);
     document.getElementById('modal-overlay').addEventListener('click', e => {
         if (e.target === e.currentTarget) closeModal();
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-    // Run intro, then fetch data
     runIntro();
     fetchData();
     fetchAnnouncement();

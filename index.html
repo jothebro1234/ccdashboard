@@ -112,6 +112,7 @@
     <div class="tabs" data-ani>
         <button class="tab active" data-cat="hours">⏱ Most Hours</button>
         <button class="tab" data-cat="events">🎯 Most Events</button>
+        <button class="tab" data-cat="curriculum">📚 Curriculum</button>
     </div>
 
     <!-- PODIUM -->
@@ -147,24 +148,32 @@
         </button>
         <div class="modal-head">
             <div class="modal-av" id="modal-av"></div>
-            <div>
+            <div class="modal-identity">
                 <div class="modal-name" id="modal-name"></div>
                 <div class="modal-disc" id="modal-disc"></div>
+                <div class="modal-school" id="modal-school"></div>
             </div>
         </div>
         <div class="modal-stats">
             <div class="modal-stat">
                 <div class="modal-val v-blue" id="modal-hrs">0</div>
-                <div class="modal-lbl">Total Hours</div>
+                <div class="modal-lbl">Hours</div>
             </div>
             <div class="m-div"></div>
             <div class="modal-stat">
                 <div class="modal-val v-purple" id="modal-evc">0</div>
-                <div class="modal-lbl">Events Attended</div>
+                <div class="modal-lbl">Events</div>
+            </div>
+            <div class="m-div"></div>
+            <div class="modal-stat">
+                <div class="modal-val v-cyan" id="modal-curr">0</div>
+                <div class="modal-lbl">Curriculum</div>
             </div>
         </div>
         <div class="modal-sec-title">Events History</div>
         <div class="modal-ev-list" id="modal-ev-list"></div>
+        <div class="modal-sec-title" id="modal-curr-title" style="display:none">Curriculum Developed</div>
+        <div class="modal-ev-list" id="modal-curr-list"></div>
     </div>
 </div>
 

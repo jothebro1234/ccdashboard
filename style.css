@@ -544,7 +544,8 @@ body {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     margin-bottom: 2px;
 }
-.pod-disc { font-size: 11px; color: var(--textm); margin-bottom: 10px; }
+.pod-disc { font-size: 11px; color: var(--textm); margin-bottom: 2px; }
+.pod-school { font-size: 11px; color: var(--cyan); margin-bottom: 8px; opacity: 0.85; }
 .pod-stat {
     font-family: 'Orbitron', sans-serif;
     font-size: 22px; font-weight: 700;
@@ -633,6 +634,7 @@ body {
 .lb-info { flex: 1; min-width: 0; }
 .lb-name { font-weight:600; font-size:14px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .lb-disc { font-size:11px; color:var(--textm); }
+.lb-school { font-size:11px; color:var(--cyan); opacity:0.85; }
 
 .lb-change {
     font-size: 11px; font-weight: 700;
@@ -763,6 +765,7 @@ body {
     font-size: 16px; font-weight: 700; color: var(--text);
 }
 .modal-disc { font-size: 13px; color: var(--blue); margin-top: 4px; }
+.modal-school { font-size: 12px; color: var(--cyan); margin-top: 3px; opacity: 0.85; }
 
 .modal-stats {
     display: flex; align-items: center;
