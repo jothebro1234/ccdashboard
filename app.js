@@ -184,8 +184,9 @@ function getStatLbl(cat, short = false) {
 
 function renderStats(data) {
     animateNum('stat-volunteers', data.length);
-    animateNum('stat-hours',      Math.round(data.reduce((s, v) => s + v.hours, 0)));
-    animateNum('stat-events',     data.reduce((s, v) => s + v.events, 0));
+    animateNum('stat-hours',      Math.round(data.reduce((s, v) => s + v.hours,      0)));
+    animateNum('stat-events',     data.reduce((s, v) => s + v.events,     0));
+    animateNum('stat-curriculum', data.reduce((s, v) => s + v.curriculum, 0));
 }
 
 // ── Podium ─────────────────────────────────────────────────────
