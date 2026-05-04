@@ -39,11 +39,16 @@ async function fetchSheet(name) {
 
 async function fetchData() {
     try {
-        const [volRows, eventRows, currRows] = await Promise.all([
+        const [volRows, eventRows, currRows, exRows] = await Promise.all([
             fetchSheet(CONFIG.SHEET_NAME),
             fetchSheet(CONFIG.EVENTS_SHEET_NAME),
             fetchSheet(CONFIG.CURRICULUM_SHEET_NAME),
+            fetchSheet(CONFIG.EXCEPTIONS_SHEET_NAME).catch(() => []),
         ]);
+
+        const exceptions = new Set(
+            exRows.slice(1).map(r => (r[0]||'').trim().toLowerCase()).filter(Boolean)
+        );
 
         if (volRows.length < 1) throw new Error('Volunteers sheet is empty');
 
@@ -92,7 +97,7 @@ async function fetchData() {
             });
         });
 
-        allData = Object.values(volMap);
+        allData = Object.values(volMap).filter(v => !exceptions.has(v.name.toLowerCase()));
         render(allData);
         hideLoading();
         document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
