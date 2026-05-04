@@ -77,16 +77,18 @@ async function fetchData() {
             });
         });
 
-        // Curriculum sheet: Curriculum Name | Date | Contributors
+        // Curriculum sheet: Curriculum Name | Date | Hours | Contributors
         currRows.slice(1).forEach(r => {
             const currName = (r[0] || '').trim();
             const date     = (r[1] || '').trim();
-            const contribs = (r[2] || '').split(',').map(n => n.trim()).filter(Boolean);
+            const hrs      = parseFloat(r[2]) || 0;
+            const contribs = (r[3] || '').split(',').map(n => n.trim()).filter(Boolean);
             contribs.forEach(contrib => {
                 const key = contrib.toLowerCase();
                 if (!volMap[key]) volMap[key] = { name:contrib, discord:'', school:'', avatar:'', hours:0, events:0, curriculum:0, eventList:[], curriculumList:[] };
                 volMap[key].curriculum += 1;
-                volMap[key].curriculumList.push({ name: currName, date });
+                volMap[key].hours      += hrs;
+                volMap[key].curriculumList.push({ name: currName, date, hours: hrs });
             });
         });
 
@@ -327,7 +329,7 @@ function openModal(name) {
                         <div class="m-ev-name">${esc(c.name)}</div>
                         <div class="m-ev-date">${fmtDate(c.date)}</div>
                     </div>
-                    <div class="m-ev-hrs" style="color:var(--cyan)">📚</div>
+                    <div class="m-ev-hrs" style="color:var(--cyan)">${c.hours > 0 ? (c.hours % 1 === 0 ? c.hours : c.hours.toFixed(1)) + ' hrs' : '📚'}</div>
                 `;
                 currList.appendChild(item);
             });
