@@ -386,12 +386,16 @@ function renderSidebar() {
     ];
     const items = isDir ? dirItems : volItems;
 
-    nav.innerHTML = items.map(it=>`
-        <button class="sb-item${S.view===it.id?' active':''}" data-view="${it.id}">
+    nav.innerHTML = items.map(it=>{
+        const badge = it.id==='notifications'
+            ? '<span class="sb-notif-badge" id="notif-badge"'+(S.notifCount?'':' style="display:none"')+'>'+S.notifCount+'</span>'
+            : '';
+        return `<button class="sb-item${S.view===it.id?' active':''}" data-view="${it.id}">
             <span class="sb-icon">${it.icon}</span>
             <span>${it.label}</span>
-            ${it.id==='notifications'?`<span class="sb-notif-badge" id="notif-badge" style="${S.notifCount?'':'display:none'}">${S.notifCount}</span>`:''}
-        </button>`).join('');
+            ${badge}
+        </button>`;
+    }).join('');
 
     nav.querySelectorAll('.sb-item').forEach(btn=>{
         btn.onclick=()=>{ navigate(btn.dataset.view); closeMobileSidebar(); };
