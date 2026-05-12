@@ -32,7 +32,7 @@ const CONFIG = {
     // Volunteers sheet columns A–L:
     //   A=Name  B=Discord  C=School  D=Avatar  E=Email
     //   F=Track  G=Tier  H=Lead  I=CyclesCompleted
-    //   J=TeamBadges  K=OnTimeRate  L=LastContact
+    //   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours
     TASKS_SHEET:       'Tasks',        // Task assignments
     SESSIONS_SHEET:    'Sessions',     // In-person sessions (Operations)
     DEBRIEFS_SHEET:    'SessionDebriefs',

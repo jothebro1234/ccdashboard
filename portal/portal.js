@@ -38,6 +38,16 @@ function fmtRelative(s) {
 }
 function isOverdue(deadline) { return deadline && new Date(deadline) < new Date(); }
 function isChecked(v) { const u=(v||'').trim().toUpperCase(); return u==='TRUE'||u==='YES'||u==='1'||u==='X'||u==='✓'||u==='✔'; }
+/* Derive track from col F; fall back to col J (specialty form response) */
+function deriveTrack(colF, colJ) {
+    const f = (colF||'').trim();
+    if (f) return f;
+    const s = (colJ||'').toLowerCase();
+    if (s.includes('curriculum'))                                                          return 'Curriculum';
+    if (s.includes('operation') || s.includes('in-person') || s.includes('session'))      return 'Operations';
+    if (s.includes('media') || s.includes('design') || s.includes('content') || s.includes('publicity')) return 'Media/Design';
+    return '';
+}
 function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function parseCSV(raw) {
     const rows=[]; let i=0;
@@ -114,7 +124,7 @@ async function loadDirectorData(track) {
     ]);
     const all = volRows.slice(1).map(r=>({
         name:(r[0]||'').trim(), discord:(r[1]||'').trim(), school:(r[2]||'').trim(),
-        avatar:(r[3]||'').trim(), email:(r[4]||'').trim(), track:(r[5]||'').trim(),
+        avatar:(r[3]||'').trim(), email:(r[4]||'').trim(), track:deriveTrack(r[5],r[9]),
         tier:(r[6]||'').trim()||'1', lead:(r[7]||'').trim(), cycles:parseInt(r[8])||0,
         onTimeRate:parseFloat(r[10])||null, lastContact:(r[11]||'').trim(),
     })).filter(v=>v.name);
@@ -225,7 +235,7 @@ async function handleGoogleSignIn(credentialResponse) {
             discord:    (row[1]||'').trim(),
             school:     (row[2]||'').trim(),
             avatar:     payload.picture || (row[3]||'').trim(),
-            track:      (row[5]||'').trim(),
+            track:      deriveTrack(row[5], row[9]),
             tier:       (row[6]||'').trim()||'1',
             lead:       (row[7]||'').trim(),
             cycles:     parseInt(row[8])||0,

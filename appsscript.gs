@@ -349,46 +349,32 @@ function createCycle(b) {
 }
 
 /* ── FORM SUBMIT TRIGGER ────────────────────────────────────── */
+// The Google Form already writes the new row automatically.
+// This trigger just fills in the derived fields (Track, Tier, defaults)
+// on the row the form just created.
+//
 // Set up via: Triggers (clock icon) → + Add Trigger
 //   Function: onFormSubmit | From spreadsheet | On form submit
 function onFormSubmit(e) {
-    const nv = e.namedValues || {};
-    function pick(/* ...keys */) {
-        for (let i = 0; i < arguments.length; i++) {
-            const v = (nv[arguments[i]] || [''])[0].trim();
-            if (v) return v;
-        }
-        return '';
-    }
+    const row = e.range.getRow();
+    const sh  = e.range.getSheet();
 
-    const email   = pick('Email Address','Email','email').toLowerCase();
-    if (!email) return; // form doesn't collect email — nothing to do
+    // Col J (column 10, 1-based) = "Select Your Main Specialty" form response
+    const specialty = sh.getRange(row, 10).getValue();
+    const track     = specialtyToTrack(specialty);
 
-    const name    = pick('Full Name','Name','Your Name','What is your name?');
-    const school  = pick('School','University','What school do you attend?','School/University');
-    const discord = pick('Discord','Discord Username','Discord Handle');
+    // Fill in fields the form doesn't populate
+    if (track) sh.getRange(row, 6).setValue(track);  // F: Track
+    sh.getRange(row, 7).setValue('1');                // G: Tier (Explorer)
+    sh.getRange(row, 8).setValue('FALSE');            // H: Lead
+    sh.getRange(row, 9).setValue('0');                // I: CyclesCompleted
+}
 
-    const sh   = getSheet('Volunteers');
-    const data = sh.getDataRange().getValues();
-
-    // Skip if already registered (match by email in col E = index 4)
-    for (let i = 1; i < data.length; i++) {
-        if ((data[i][4] || '').toString().trim().toLowerCase() === email) return;
-    }
-
-    // Add new volunteer row with default tier 1 (Explorer)
-    sh.appendRow([
-        name,      // A: Name
-        discord,   // B: Discord
-        school,    // C: School
-        '',        // D: Avatar
-        email,     // E: Email  ← matched by portal sign-in
-        '',        // F: Track  (director assigns)
-        '1',       // G: Tier
-        'FALSE',   // H: Lead
-        '0',       // I: CyclesCompleted
-        '',        // J: TeamBadges
-        '',        // K: OnTimeRate
-        '',        // L: LastContact
-    ]);
+// Maps the specialty form response text to a portal Track value.
+function specialtyToTrack(specialty) {
+    const s = (specialty || '').toLowerCase();
+    if (s.includes('curriculum'))                                       return 'Curriculum';
+    if (s.includes('operation') || s.includes('in-person') || s.includes('session')) return 'Operations';
+    if (s.includes('media') || s.includes('design') || s.includes('content') || s.includes('publicity')) return 'Media/Design';
+    return '';
 }
