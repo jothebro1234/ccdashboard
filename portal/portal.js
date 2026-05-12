@@ -390,7 +390,7 @@ function renderSidebar() {
         <button class="sb-item${S.view===it.id?' active':''}" data-view="${it.id}">
             <span class="sb-icon">${it.icon}</span>
             <span>${it.label}</span>
-            ${it.id==='notifications'?`<span class="sb-notif-badge" id="notif-badge" style="${S.notifCount?'':'display:none'">${S.notifCount}</span>`:''}
+            ${it.id==='notifications'?`<span class="sb-notif-badge" id="notif-badge" style="${S.notifCount?'':'display:none'}">${S.notifCount}</span>`:''}
         </button>`).join('');
 
     nav.querySelectorAll('.sb-item').forEach(btn=>{
@@ -1042,7 +1042,7 @@ async function viewLeaderboard() {
                 <div class="view-title">Leaderboard 🥇</div>
                 <div class="view-subtitle">Live hours, events & curriculum rankings</div>
             </div>
-            <a href="../main/" target="_blank" class="btn btn-ghost btn-sm">Full Page ↗</a>
+            <button class="btn btn-ghost btn-sm" onclick="navigate('leaderboard')">↺ Refresh</button>
         </div>
         <div class="lb-tabs" id="lb-tabs">
             <button class="lb-tab active" data-cat="hours">⏱ Hours</button>
