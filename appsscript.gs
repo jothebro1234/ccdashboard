@@ -4,19 +4,23 @@
  * SETUP:
  * 1. Open your Google Sheet → Extensions → Apps Script
  * 2. Paste this entire file into Code.gs (replace default content)
- * 3. Click "Deploy" → "New deployment" → Type: Web App
- *    - Execute as: Me
- *    - Who has access: Anyone
- * 4. Copy the /exec URL and paste it into CONFIG.APPS_SCRIPT_URL in config.js
+ * 3. Deploy as Web App (Execute as: Me, Anyone can access) → copy /exec URL → paste into CONFIG.APPS_SCRIPT_URL
+ * 4. Add form-submit trigger: Extensions → Apps Script → Triggers (clock icon) → + Add Trigger
+ *    - Function: onFormSubmit  Event source: From spreadsheet  Event type: On form submit
  *
- * REQUIRED SHEETS (create these tabs in your spreadsheet):
- *   Tasks | Sessions | SessionDebriefs | WinsBoard | Notifications
- *   Nominations | Cycles | ContentCalendar
+ * REQUIRED SHEETS: Tasks | Sessions | SessionDebriefs | WinsBoard | Notifications
+ *                  Nominations | Cycles | ContentCalendar
  *
- * VOLUNTEERS SHEET (extend existing columns A-D):
- *   A=Name  B=Discord  C=School  D=Avatar
- *   E=Token  F=Track  G=Tier  H=Lead  I=CyclesCompleted
- *   J=TeamBadges(existing)  K=OnTimeRate  L=LastContact
+ * VOLUNTEERS SHEET columns A–L:
+ *   A=Name  B=Discord  C=School  D=Avatar  E=Email
+ *   F=Track  G=Tier  H=Lead  I=CyclesCompleted
+ *   J=TeamBadges  K=OnTimeRate  L=LastContact
+ *
+ * FORM FIELD NAMES (must match exactly, case-insensitive checked):
+ *   "Email Address" or "Email"  → column E
+ *   "Full Name" or "Name"       → column A
+ *   "School" or "University"    → column C
+ *   "Discord" or "Discord Username" → column B
  */
 
 const SS = SpreadsheetApp.getActiveSpreadsheet();
@@ -342,4 +346,49 @@ function createCycle(b) {
     }
     appendRow('Cycles', [b.cycleNumber, b.startDate, b.endDate, 'Active', b.notes||'']);
     return 'Cycle created';
+}
+
+/* ── FORM SUBMIT TRIGGER ────────────────────────────────────── */
+// Set up via: Triggers (clock icon) → + Add Trigger
+//   Function: onFormSubmit | From spreadsheet | On form submit
+function onFormSubmit(e) {
+    const nv = e.namedValues || {};
+    function pick(/* ...keys */) {
+        for (let i = 0; i < arguments.length; i++) {
+            const v = (nv[arguments[i]] || [''])[0].trim();
+            if (v) return v;
+        }
+        return '';
+    }
+
+    const email   = pick('Email Address','Email','email').toLowerCase();
+    if (!email) return; // form doesn't collect email — nothing to do
+
+    const name    = pick('Full Name','Name','Your Name','What is your name?');
+    const school  = pick('School','University','What school do you attend?','School/University');
+    const discord = pick('Discord','Discord Username','Discord Handle');
+
+    const sh   = getSheet('Volunteers');
+    const data = sh.getDataRange().getValues();
+
+    // Skip if already registered (match by email in col E = index 4)
+    for (let i = 1; i < data.length; i++) {
+        if ((data[i][4] || '').toString().trim().toLowerCase() === email) return;
+    }
+
+    // Add new volunteer row with default tier 1 (Explorer)
+    sh.appendRow([
+        name,      // A: Name
+        discord,   // B: Discord
+        school,    // C: School
+        '',        // D: Avatar
+        email,     // E: Email  ← matched by portal sign-in
+        '',        // F: Track  (director assigns)
+        '1',       // G: Tier
+        'FALSE',   // H: Lead
+        '0',       // I: CyclesCompleted
+        '',        // J: TeamBadges
+        '',        // K: OnTimeRate
+        '',        // L: LastContact
+    ]);
 }

@@ -23,10 +23,16 @@ const CONFIG = {
         president: 'ccadmin2025',
     },
 
+    // ── Portal: Auth ──────────────────────────────────────────────
+    // 0-based column index in Volunteers sheet that holds the email address.
+    // Default 4 = column E. Adjust if your form puts email elsewhere.
+    EMAIL_COL: 4,
+
     // ── Portal: New Sheet Names ───────────────────────────────────
-    // Volunteers sheet extended columns (E–L, existing A–D and J unchanged):
-    //   E=Token  F=Track  G=Tier  H=Lead  I=CyclesCompleted
-    //   J=TeamBadges(existing)  K=OnTimeRate  L=LastContact
+    // Volunteers sheet columns A–L:
+    //   A=Name  B=Discord  C=School  D=Avatar  E=Email
+    //   F=Track  G=Tier  H=Lead  I=CyclesCompleted
+    //   J=TeamBadges  K=OnTimeRate  L=LastContact
     TASKS_SHEET:       'Tasks',        // Task assignments
     SESSIONS_SHEET:    'Sessions',     // In-person sessions (Operations)
     DEBRIEFS_SHEET:    'SessionDebriefs',

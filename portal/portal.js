@@ -114,7 +114,7 @@ async function loadDirectorData(track) {
     ]);
     const all = volRows.slice(1).map(r=>({
         name:(r[0]||'').trim(), discord:(r[1]||'').trim(), school:(r[2]||'').trim(),
-        avatar:(r[3]||'').trim(), token:(r[4]||'').trim(), track:(r[5]||'').trim(),
+        avatar:(r[3]||'').trim(), email:(r[4]||'').trim(), track:(r[5]||'').trim(),
         tier:(r[6]||'').trim()||'1', lead:(r[7]||'').trim(), cycles:parseInt(r[8])||0,
         onTimeRate:parseFloat(r[10])||null, lastContact:(r[11]||'').trim(),
     })).filter(v=>v.name);
@@ -173,31 +173,64 @@ async function loadLbData() {
    ═══════════════════════════════════════════════════════════════ */
 function parseURLParams() {
     const p = new URLSearchParams(window.location.search);
-    return { vol: p.get('vol'), role: p.get('role') };
+    return { role: p.get('role') };
 }
 
 async function initAuth() {
-    const { vol, role } = parseURLParams();
-    if (vol) {
-        await authVolunteer(vol);
-    } else if (role) {
+    const { role } = parseURLParams();
+    if (role) {
         showRoleAuth(role);
     } else {
         showLanding();
     }
 }
 
-async function authVolunteer(token) {
+/* ── Google Sign-In ────────────────────────────────────────────── */
+function initGoogleSignIn() {
+    if (typeof google === 'undefined') { setTimeout(initGoogleSignIn, 200); return; }
+    google.accounts.id.initialize({
+        client_id: CONFIG.GOOGLE_CLIENT_ID,
+        callback: handleGoogleSignIn,
+        auto_select: true,
+        cancel_on_tap_outside: false,
+    });
+    const wrap = document.getElementById('g-btn-wrap');
+    if (wrap) {
+        google.accounts.id.renderButton(wrap, {
+            theme: 'filled_blue', size: 'large', width: 300,
+            text: 'signin_with', shape: 'pill',
+        });
+    }
+    google.accounts.id.prompt();
+}
+
+async function handleGoogleSignIn(credentialResponse) {
     showLoading();
     try {
+        const parts = (credentialResponse.credential||'').split('.');
+        if (parts.length < 2) throw new Error('Invalid credential from Google.');
+        const payload = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+        const email = (payload.email||'').trim().toLowerCase();
+        if (!email) throw new Error('No email returned from Google sign-in.');
+
         const rows = await fetchSheet(CONFIG.SHEET_NAME);
-        const row = rows.slice(1).find(r=>(r[4]||'').trim()===token);
-        if (!row) { hideLoading(); showInvalidToken(); return; }
+        const emailCol = CONFIG.EMAIL_COL ?? 4;
+        const row = rows.slice(1).find(r=>(r[emailCol]||'').trim().toLowerCase()===email);
+
+        if (!row) { hideLoading(); showNotRegistered(email, payload.picture); return; }
+
         S.user = {
-            name: (row[0]||'').trim(), discord:(row[1]||'').trim(), school:(row[2]||'').trim(),
-            avatar:(row[3]||'').trim(), token, track:(row[5]||'').trim(),
-            tier:(row[6]||'').trim()||'1', lead:(row[7]||'').trim(), cycles:parseInt(row[8])||0,
-            onTimeRate:parseFloat(row[10])||null, lastContact:(row[11]||'').trim(),
+            name:       (row[0]||'').trim(),
+            email,
+            discord:    (row[1]||'').trim(),
+            school:     (row[2]||'').trim(),
+            avatar:     payload.picture || (row[3]||'').trim(),
+            track:      (row[5]||'').trim(),
+            tier:       (row[6]||'').trim()||'1',
+            lead:       (row[7]||'').trim(),
+            cycles:     parseInt(row[8])||0,
+            onTimeRate: parseFloat(row[10])||null,
+            lastContact:(row[11]||'').trim(),
         };
         S.role = 'volunteer';
         await loadVolunteerData(S.user.name);
@@ -212,24 +245,12 @@ function showLanding() {
     document.getElementById('auth-title').textContent = 'Volunteer Portal';
     document.getElementById('auth-body').innerHTML = `
         <div class="auth-body">
-            <div class="auth-steps">
-                <div class="auth-step">
-                    <div class="auth-step-num">1</div>
-                    <div class="auth-step-txt">Fill out the <a href="${esc(CONFIG.JOIN_URL)}" target="_blank" class="auth-link">volunteer sign-up form</a> if you haven't already.</div>
-                </div>
-                <div class="auth-step">
-                    <div class="auth-step-num">2</div>
-                    <div class="auth-step-txt">After you're added to the roster, you'll receive a personal access token.</div>
-                </div>
-                <div class="auth-step">
-                    <div class="auth-step-num">3</div>
-                    <div class="auth-step-txt">Paste your token below to sign in.</div>
-                </div>
-            </div>
-            <label class="auth-label" style="margin-top:4px">Your Access Token</label>
-            <input class="auth-input" id="vol-token-input" placeholder="Paste your token here…" autocomplete="off">
-            <button class="auth-btn" id="vol-auth-btn">Sign In →</button>
+            <p class="auth-desc">Sign in with the Google account you used to fill out the volunteer form.</p>
+            <div id="g-btn-wrap" style="display:flex;justify-content:center;margin:6px 0 2px"></div>
             <div class="auth-err" id="auth-err-msg"></div>
+            <p class="auth-desc" style="font-size:12px">
+                New volunteer? <a href="${esc(CONFIG.JOIN_URL)}" target="_blank" class="auth-link">Fill out the sign-up form first →</a>
+            </p>
             <hr style="border:none;border-top:1px solid rgba(255,255,255,.08);width:100%;margin-top:4px">
             <p class="auth-desc" style="font-size:11px;margin-bottom:-4px">Director or President? Sign in here:</p>
             <div class="auth-role-row">
@@ -239,15 +260,22 @@ function showLanding() {
                 <button class="auth-role-btn" data-role="president">👑 Pres</button>
             </div>
         </div>`;
-    document.getElementById('vol-auth-btn').onclick = () => {
-        const t = document.getElementById('vol-token-input').value.trim();
-        if (!t) { document.getElementById('auth-err-msg').textContent = 'Please enter your token.'; return; }
-        authVolunteer(t);
-    };
-    document.getElementById('vol-token-input').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('vol-auth-btn').click(); });
+    initGoogleSignIn();
     document.querySelectorAll('.auth-role-btn').forEach(btn=>{
         btn.onclick = () => showRoleAuth(btn.dataset.role);
     });
+}
+
+function showNotRegistered(email, picture) {
+    document.getElementById('auth-title').textContent = 'Not Registered Yet';
+    document.getElementById('auth-body').innerHTML = `
+        <div class="auth-body">
+            ${picture ? `<img src="${esc(picture)}" style="width:52px;height:52px;border-radius:50%;margin:0 auto;display:block">` : ''}
+            <p class="auth-desc" style="color:var(--text2)">Signed in as <strong>${esc(email)}</strong></p>
+            <p class="auth-desc">No volunteer record found. Fill out the sign-up form — once you're added to the roster, sign in here with the same Google account.</p>
+            <a href="${esc(CONFIG.JOIN_URL)}" target="_blank" class="auth-btn" style="display:block;text-decoration:none;text-align:center">📋 Fill Out Sign-Up Form</a>
+            <button class="auth-btn" onclick="showLanding()" style="background:var(--glass);border:1px solid var(--border-hi)">← Use a Different Account</button>
+        </div>`;
 }
 
 function showRoleAuth(role) {
@@ -282,17 +310,6 @@ function showRoleAuth(role) {
     input.focus();
 }
 
-function showInvalidToken() {
-    document.getElementById('auth-title').textContent = 'Not Found';
-    document.getElementById('auth-body').innerHTML = `
-        <div class="auth-body">
-            <p class="auth-desc" style="color:var(--red)">No volunteer record matches this token.</p>
-            <p class="auth-desc">If you're new, fill out the sign-up form first — directors will add you to the roster and send your token.</p>
-            <a href="${esc(CONFIG.JOIN_URL)}" target="_blank" class="auth-btn" style="display:block;text-decoration:none;text-align:center">📋 Fill Out Sign-Up Form</a>
-            <button class="auth-btn" id="back-btn" style="background:var(--glass);border:1px solid var(--border-hi);margin-top:-4px">← Try a Different Token</button>
-        </div>`;
-    document.getElementById('back-btn').onclick = ()=>{ window.location.href=window.location.pathname; };
-}
 
 function showAuthError(msg) {
     document.getElementById('auth-body').innerHTML = `
