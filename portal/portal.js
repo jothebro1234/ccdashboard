@@ -45,31 +45,51 @@ function deriveTrack(colF,colJ) {
     return'';
 }
 function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+/* Returns today as YYYY-MM-DD in the *local* timezone — avoids UTC midnight parse issues */
+function localToday() {
+    const n=new Date();
+    return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+}
+/* Normalize any date value to YYYY-MM-DD string for safe string comparison */
+function toDateStr(d) {
+    if(!d)return'';
+    const s=String(d).trim();
+    if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);
+    const p=new Date(s);
+    if(isNaN(p))return'';
+    return p.getFullYear()+'-'+String(p.getMonth()+1).padStart(2,'0')+'-'+String(p.getDate()).padStart(2,'0');
+}
 function formatCountdown(startDate) {
     if(!startDate)return'';
-    const diff=new Date(startDate)-new Date();
-    if(diff<=0)return'Registration locked';
+    const sd=toDateStr(startDate);
+    if(!sd||sd<localToday())return'Registration locked';
+    const diff=new Date(sd+'T23:59:59')-new Date();
+    if(diff<=0)return'Closes today';
     const d=Math.floor(diff/86400000);
     const h=Math.floor((diff%86400000)/3600000);
-    const m=Math.floor((diff%3600000)/60000);
     if(d>0)return`${d}d ${h}h left`;
-    if(h>0)return`${h}h ${m}m left`;
-    return`${m}m left`;
+    return`${h}h left`;
 }
+/* Lock date is the LAST DAY registration is open; locked from the next day onwards */
 function isLocked(startDate) {
     if(!startDate)return false;
-    return new Date(startDate)<=new Date();
+    const sd=toDateStr(startDate);
+    return sd!==''&&sd<localToday();
 }
-/* An assignment is closed for registration if its lock date OR due date has passed */
+/* Closed if lock date has passed OR due date has passed */
 function isClosed(startDate,dueDate) {
-    if(startDate&&new Date(startDate)<=new Date())return true;
-    if(dueDate&&new Date(dueDate)<new Date())return true;
+    const today=localToday();
+    const sd=toDateStr(startDate);
+    const dd=toDateStr(dueDate);
+    if(sd&&sd<today)return true;
+    if(dd&&dd<today)return true;
     return false;
 }
-/* True if the assignment is done: due date passed and hours have been given (col D filled) */
-function isCompleted(dueDate,contributors) {
+/* Completed = past due date */
+function isCompleted(dueDate) {
     if(!dueDate)return false;
-    return new Date(dueDate)<new Date()&&(contributors||'').trim()!=='';
+    const dd=toDateStr(dueDate);
+    return dd!==''&&dd<localToday();
 }
 function parseCSV(raw) {
     const rows=[];let i=0;
@@ -673,8 +693,8 @@ function renderCurrList(filter) {
     const assignments=S.data.curriculum||[];
     const lower=(S.user?.name||'').toLowerCase();
     let filtered=assignments;
-    if(filter==='open')filtered=assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1],r[3]));
-    else if(filter==='locked')filtered=assignments.filter(r=>isClosed(r[5],r[1])&&!isCompleted(r[1],r[3]));
+    if(filter==='open')filtered=assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1]));
+    else if(filter==='locked')filtered=assignments.filter(r=>isClosed(r[5],r[1])&&!isCompleted(r[1]));
     else if(filter==='mine')filtered=assignments.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
@@ -698,7 +718,7 @@ function currCardHTML(r,lowerName) {
     const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const filled=regList.length;
     const locked=isClosed(startDate,r[1]); // locked by start date OR past due date
-    const done=isCompleted(r[1],r[3]);     // past due + hours given
+    const done=isCompleted(r[1]);
     const isCredited=credited.some(n=>n.toLowerCase()===lowerName);
     const isRegistered=regList.some(n=>n.toLowerCase()===lowerName);
     const isFull=maxVols>0&&filled>=maxVols;
