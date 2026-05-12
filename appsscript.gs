@@ -13,9 +13,10 @@
  *   F=Track  G=Tier  H=Lead  I=CyclesCompleted
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours
  *
- * CURRICULUM SHEET columns (A–H):
+ * CURRICULUM SHEET columns (A–I):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
+ *   I=Instructions
  *
  * EVENTS SHEET columns (A–E):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly
@@ -40,7 +41,7 @@ function getSheet(name) {
 
 function initSheetHeaders(sh, name) {
     const headers = {
-        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers'],
+        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions'],
         Events:     ['EventName','Date','Hours','Attendees','IsAssembly'],
     };
     if (headers[name]) sh.appendRow(headers[name]);
@@ -59,6 +60,20 @@ function findRow(sheetName, col, value) {
 /* Update a single cell. col is 0-indexed. */
 function updateCell(sheetName, rowIdx, col, value) {
     getSheet(sheetName).getRange(rowIdx, col + 1).setValue(value);
+}
+
+/* Returns today as YYYY-MM-DD in the spreadsheet's timezone */
+function todayStr() {
+    const d = new Date();
+    return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+/* Extract just the date part (YYYY-MM-DD) from any stored date string */
+function datePartStr(val) {
+    if (!val) return '';
+    const s = String(val).trim();
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : '';
 }
 
 /* ── doPost ─────────────────────────────────────────────────── */
@@ -84,6 +99,7 @@ function route(body) {
     switch (body.action) {
         /* Curriculum */
         case 'create_curriculum':      return createCurriculum(body);
+        case 'edit_curriculum':        return editCurriculum(body);
         case 'register_curriculum':    return registerCurriculum(body);
         case 'unregister_curriculum':  return unregisterCurriculum(body);
         case 'give_hours':             return giveHours(body);
@@ -102,15 +118,38 @@ function createCurriculum(b) {
     const sh = getSheet(SHEET_CURRICULUM);
     sh.appendRow([
         b.assignmentName,
-        b.dueDate,
-        b.hours,
-        b.contributors    || '',
-        b.slidesLink      || '',
-        b.startDate       || '',
-        b.maxVolunteers   || '',
+        b.dueDate        || '',
+        b.hours          || '',
+        b.contributors   || '',
+        b.slidesLink     || '',
+        b.startDate      || '',
+        b.maxVolunteers  || '',
         b.registeredVolunteers || '',
+        b.instructions   || '',
     ]);
     return 'Curriculum assignment created: ' + b.assignmentName;
+}
+
+function editCurriculum(b) {
+    const sh = SS.getSheetByName(SHEET_CURRICULUM);
+    if (!sh) throw new Error('Curriculum sheet not found.');
+    const data = sh.getDataRange().getValues();
+
+    let rowIdx = -1;
+    for (let i = 1; i < data.length; i++) {
+        if ((data[i][0] || '').trim() === (b.assignmentName || '').trim()) { rowIdx = i + 1; break; }
+    }
+    if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
+
+    const f = b.fields || {};
+    // col numbers are 1-based for getRange
+    if (f.dueDate       !== undefined) sh.getRange(rowIdx, 2).setValue(f.dueDate);
+    if (f.hours         !== undefined) sh.getRange(rowIdx, 3).setValue(f.hours);
+    if (f.slidesLink    !== undefined) sh.getRange(rowIdx, 5).setValue(f.slidesLink);
+    if (f.startDate     !== undefined) sh.getRange(rowIdx, 6).setValue(f.startDate);
+    if (f.maxVolunteers !== undefined) sh.getRange(rowIdx, 7).setValue(f.maxVolunteers);
+    if (f.instructions  !== undefined) sh.getRange(rowIdx, 9).setValue(f.instructions);
+    return 'Updated: ' + b.assignmentName;
 }
 
 function registerCurriculum(b) {
@@ -126,9 +165,10 @@ function registerCurriculum(b) {
     }
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
-    // Check lock date
-    const startDate = rowData[5];
-    if (startDate && new Date(startDate) <= new Date()) {
+    // Check lock date using string comparison to avoid UTC timezone issues
+    const startDatePart = datePartStr(rowData[5]);
+    const today = todayStr();
+    if (startDatePart && startDatePart < today) {
         throw new Error('Registration is locked — the start date has passed.');
     }
 
@@ -161,8 +201,10 @@ function unregisterCurriculum(b) {
     }
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
-    const startDate = rowData[5];
-    if (startDate && new Date(startDate) <= new Date()) {
+    // Check lock date using string comparison
+    const startDatePart = datePartStr(rowData[5]);
+    const today = todayStr();
+    if (startDatePart && startDatePart < today) {
         throw new Error('Registration is locked — contact your DOC to be removed.');
     }
 

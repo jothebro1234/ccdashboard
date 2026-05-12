@@ -983,3 +983,66 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
     background: rgba(2,4,11,.6); backdrop-filter: blur(4px);
     z-index: 40;
 }
+
+/* ─── Assignment Detail / Edit Modal ────────────────────────── */
+.modal-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(2,4,11,.7); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+    opacity: 0; transition: opacity .2s ease;
+}
+.modal-overlay.modal-in { opacity: 1; }
+.modal-box {
+    background: var(--surface1); border: 1px solid var(--border-hi);
+    border-radius: 16px; width: 100%; max-width: 560px;
+    max-height: 88vh; overflow-y: auto; box-shadow: 0 24px 60px rgba(0,0,0,.6);
+    transform: translateY(12px); transition: transform .22s cubic-bezier(.4,0,.2,1);
+}
+.modal-overlay.modal-in .modal-box { transform: translateY(0); }
+.modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 22px 14px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--surface1); z-index: 1;
+}
+.modal-title { font-size: 15px; font-weight: 700; color: var(--text1); }
+.modal-close {
+    background: var(--glass-hi); border: 1px solid var(--border);
+    color: var(--textm); border-radius: 8px;
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; font-size: 13px; flex-shrink: 0;
+    transition: background .15s;
+}
+.modal-close:hover { background: var(--border-hi); color: var(--text1); }
+.modal-body { padding: 20px 22px 24px; }
+.modal-chips {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;
+    align-items: center;
+}
+.modal-chip {
+    font-size: 12px; padding: 4px 12px; border-radius: 100px;
+    background: var(--glass-hi); border: 1px solid var(--border);
+    color: var(--text2);
+}
+.modal-signup-close {
+    font-size: 13px; color: var(--blue); background: var(--blue-g);
+    border: 1px solid rgba(56,189,248,.2); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 16px; line-height: 1.5;
+}
+.modal-section { margin-top: 18px; }
+.modal-section-title {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em;
+    color: var(--textm); text-transform: uppercase; margin-bottom: 8px;
+}
+.modal-instructions {
+    font-size: 13px; color: var(--text2); line-height: 1.7;
+    background: var(--glass); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+    white-space: pre-wrap;
+}
+
+/* Signup-close notice on volunteer cards */
+.curr-signup-close {
+    font-size: 12px; color: var(--blue);
+    margin-top: 5px; line-height: 1.4;
+}

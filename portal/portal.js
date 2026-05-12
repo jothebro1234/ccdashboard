@@ -62,8 +62,10 @@ function toDateStr(d) {
 function formatCountdown(startDate) {
     if(!startDate)return'';
     const sd=toDateStr(startDate);
+    const st=toTimeStr(startDate);
     if(!sd||sd<localToday())return'Registration locked';
-    const diff=new Date(sd+'T23:59:59')-new Date();
+    const closeStr=st?`${sd}T${st}:00`:`${sd}T23:59:59`;
+    const diff=new Date(closeStr)-new Date();
     if(diff<=0)return'Closes today';
     const d=Math.floor(diff/86400000);
     const h=Math.floor((diff%86400000)/3600000);
@@ -90,6 +92,53 @@ function isCompleted(dueDate) {
     if(!dueDate)return false;
     const dd=toDateStr(dueDate);
     return dd!==''&&dd<localToday();
+}
+function localYesterday() {
+    const n=new Date();n.setDate(n.getDate()-1);
+    return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+}
+/* Extract HH:MM from a datetime string like "2025-06-15T14:00" or "2025-06-15 14:00" */
+function toTimeStr(s) {
+    if(!s)return'';
+    const m=String(s).match(/[T ](\d{2}:\d{2})/);
+    return m?m[1]:'';
+}
+/* Format a stored date/datetime value to human-readable, including time if present */
+function fmtDateTimeStr(s) {
+    if(!s)return'—';
+    const ds=toDateStr(s);
+    const ts=toTimeStr(s);
+    if(!ds)return String(s)||'—';
+    const d=new Date(ds+'T12:00:00');
+    const dateFmt=isNaN(d)?ds:d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    if(!ts)return dateFmt;
+    const[h,min]=ts.split(':').map(Number);
+    const ampm=h>=12?'PM':'AM';
+    const hr12=h%12||12;
+    return`${dateFmt} at ${hr12}:${String(min).padStart(2,'0')} ${ampm}`;
+}
+/* Convert stored date/datetime to datetime-local input format */
+function toDateTimeLocal(s) {
+    if(!s)return'';
+    const ds=toDateStr(s);
+    if(!ds)return'';
+    const ts=toTimeStr(s);
+    return ts?`${ds}T${ts}`:`${ds}T00:00`;
+}
+/* Create and show a modal overlay; returns a close() function */
+function openModal(html) {
+    const overlay=document.createElement('div');
+    overlay.className='modal-overlay';
+    overlay.innerHTML=`<div class="modal-box" role="dialog">${html}</div>`;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(()=>overlay.classList.add('modal-in'));
+    const close=()=>{
+        overlay.classList.remove('modal-in');
+        setTimeout(()=>{if(overlay.parentNode)overlay.remove();},220);
+    };
+    overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
+    overlay.querySelectorAll('.modal-close').forEach(b=>b.addEventListener('click',close));
+    return close;
 }
 function parseCSV(raw) {
     const rows=[];let i=0;
@@ -712,12 +761,11 @@ function currCardHTML(r,lowerName) {
     const name=r[0]||'Untitled';
     const hours=r[2]||'0';
     const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
-    const slidesLink=r[4]||'';
     const startDate=r[5]||'';
     const maxVols=parseInt(r[6])||0;
     const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const filled=regList.length;
-    const locked=isClosed(startDate,r[1]); // locked by start date OR past due date
+    const locked=isClosed(startDate,r[1]);
     const done=isCompleted(r[1]);
     const isCredited=credited.some(n=>n.toLowerCase()===lowerName);
     const isRegistered=regList.some(n=>n.toLowerCase()===lowerName);
@@ -750,20 +798,23 @@ function currCardHTML(r,lowerName) {
             actionHTML='<span class="muted text-small">Slots full</span>';
         }
     }
+    actionHTML+=` <button class="btn btn-ghost btn-sm curr-detail-btn" data-name="${esc(name)}">📋 Details</button>`;
 
     const cardCls=done?'curr-completed':locked&&!isCredited?'curr-locked':'';
     const lockBadge=done
         ?'<span class="curr-done-badge">✅ Completed</span>'
         :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
         :`<span class="curr-countdown">${esc(countdown)}</span>`;
+
+    const signupCloseHTML=!done&&!locked&&startDate
+        ?`<div class="curr-signup-close">🔔 Signups close on <strong>${fmtDateTimeStr(startDate)}</strong></div>`:'';
+
     return `<div class="curr-card ${cardCls} ${isCredited?'curr-credited':''}">
         <div class="curr-header">
             <div style="flex:1;min-width:0">
                 <div class="curr-title">${esc(name)}</div>
-                <div class="curr-meta">
-                    Due ${fmtDate(r[1])} · ${esc(hours)}h credit
-                    ${slidesLink?` · <a href="${esc(slidesLink)}" target="_blank" class="task-link" style="font-size:11px;padding:2px 7px">📄 Slides ↗</a>`:''}
-                </div>
+                <div class="curr-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(hours)}h credit</div>
+                ${signupCloseHTML}
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
                 ${statusBadge}
@@ -808,6 +859,66 @@ function attachCurrEvents() {
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✕ Unregister';}
         };
     });
+    document.querySelectorAll('.curr-detail-btn').forEach(btn=>{
+        btn.onclick=()=>{
+            const name=btn.dataset.name;
+            const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
+            if(r)showAssignmentDetail(r);
+        };
+    });
+}
+
+function showAssignmentDetail(r) {
+    const name=r[0]||'Untitled';
+    const hours=r[2]||'0';
+    const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const slidesLink=r[4]||'';
+    const startDate=r[5]||'';
+    const maxVols=parseInt(r[6])||0;
+    const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const instructions=r[8]||'';
+    const done=isCompleted(r[1]);
+    const locked=isClosed(startDate,r[1]);
+    const lockDateStr=startDate?fmtDateTimeStr(startDate):'';
+    const dueDateStr=fmtDateTimeStr(r[1]);
+
+    let stateBadge='';
+    if(done)stateBadge='<span class="curr-done-badge">✅ Completed</span>';
+    else if(locked)stateBadge='<span class="curr-lock-badge">🔒 Registration closed</span>';
+
+    const html=`
+        <div class="modal-header">
+            <div class="modal-title">${esc(name)}</div>
+            <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-chips">
+                <span class="modal-chip">📅 Due ${dueDateStr}</span>
+                <span class="modal-chip">⏱ ${esc(hours)}h credit</span>
+                <span class="modal-chip">👥 ${regList.length}/${maxVols||'?'} slots</span>
+                ${stateBadge}
+            </div>
+            ${!done&&!locked&&lockDateStr?`<div class="modal-signup-close">🔔 Signups for this lesson will close on <strong>${lockDateStr}</strong></div>`:''}
+            ${instructions?`<div class="modal-section">
+                <div class="modal-section-title">INSTRUCTIONS</div>
+                <div class="modal-instructions">${esc(instructions).replace(/\n/g,'<br>')}</div>
+            </div>`:''}
+            <div class="modal-section">
+                <div class="modal-section-title">SLIDES</div>
+                ${slidesLink
+                    ?`<a href="${esc(slidesLink)}" target="_blank" rel="noopener" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none">📄 Open Slides ↗</a>`
+                    :'<span class="muted text-small">No slides link yet.</span>'}
+            </div>
+            ${regList.length?`<div class="modal-section">
+                <div class="modal-section-title">REGISTERED (${regList.length})</div>
+                <div class="vol-chips">${regList.map(n=>`<span class="vol-chip">${esc(n)}</span>`).join('')}</div>
+            </div>`:''}
+            ${credited.length?`<div class="modal-section">
+                <div class="modal-section-title">HOURS GIVEN TO</div>
+                <div class="vol-chips">${credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('')}</div>
+            </div>`:''}
+        </div>`;
+    openModal(html);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1115,6 +1226,31 @@ function attachRosterEvents() {
 /* ─── POST ASSIGNMENT (DOC) ─────────────────────────────────── */
 function dirPostAssignHTML() {
     const existing=S.data.curriculum||[];
+    const existingCards=existing.slice().reverse().map(r=>{
+        const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
+        const maxVols=parseInt(r[6])||0;
+        const done=isCompleted(r[1]);
+        const locked=isClosed(r[5],r[1]);
+        const statusBadge=done
+            ?'<span class="curr-done-badge">✅ Completed</span>'
+            :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
+            :`<span class="curr-open-badge">Open · ${esc(formatCountdown(r[5]))}</span>`;
+        return `<div class="curr-card">
+            <div class="curr-header">
+                <div style="flex:1;min-width:0">
+                    <div class="curr-title">${esc(r[0]||'')}</div>
+                    <div class="curr-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
+                </div>
+                <div style="flex-shrink:0">${statusBadge}</div>
+            </div>
+            <div class="curr-actions mt-10" style="flex-wrap:wrap;gap:7px">
+                <button class="btn btn-ghost btn-sm dir-edit-btn" data-name="${esc(r[0]||'')}">✏️ Edit</button>
+                ${!locked?`<button class="btn btn-ghost btn-sm dir-startnow-btn" data-name="${esc(r[0]||'')}">▶ Start Now</button>`:''}
+                ${!done?`<button class="btn btn-ghost btn-sm dir-finishearly-btn" data-name="${esc(r[0]||'')}">✓ Finish Early</button>`:''}
+            </div>
+        </div>`;
+    }).join('')||'<div class="muted text-small">No assignments posted yet.</div>';
+
     return `
         <div style="display:grid;grid-template-columns:1fr 1.1fr;gap:20px;align-items:start">
             <div class="card">
@@ -1125,18 +1261,18 @@ function dirPostAssignHTML() {
                         <input class="form-input" id="pa-name" placeholder="e.g. Week 3 — Circuits Lesson">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Slides Link *</label>
+                        <label class="form-label">Slides Link</label>
                         <input class="form-input" id="pa-slides" placeholder="https://docs.google.com/presentation/…">
                     </div>
                     <div class="form-grid form-grid-2">
                         <div class="form-group">
-                            <label class="form-label">Due Date *</label>
-                            <input class="form-input" type="date" id="pa-due">
+                            <label class="form-label">Due Date &amp; Time *</label>
+                            <input class="form-input" type="datetime-local" id="pa-due">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Registration Lock Date *</label>
-                            <input class="form-input" type="date" id="pa-start">
-                            <div class="form-hint">After this date, no new registrations</div>
+                            <label class="form-label">Registration Lock Date &amp; Time *</label>
+                            <input class="form-input" type="datetime-local" id="pa-start">
+                            <div class="form-hint">After this, no new sign-ups</div>
                         </div>
                     </div>
                     <div class="form-grid form-grid-2">
@@ -1149,21 +1285,17 @@ function dirPostAssignHTML() {
                             <input class="form-input" type="number" id="pa-max" placeholder="3" min="1">
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Instructions <span class="muted" style="font-weight:400">(optional)</span></label>
+                        <textarea class="form-textarea" id="pa-instructions" style="min-height:90px" placeholder="Describe what volunteers need to do, any requirements, etc."></textarea>
+                    </div>
                     <div class="form-err" id="pa-err"></div>
                     <button class="btn btn-primary" id="pa-submit-btn">📋 Post Assignment</button>
                 </div>
             </div>
             <div>
                 <div class="section-title">EXISTING ASSIGNMENTS (${existing.length})</div>
-                ${existing.slice().reverse().slice(0,8).map(r=>{
-                    const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
-                    const maxVols=parseInt(r[6])||0;
-                    return `<div class="curr-card">
-                        <div class="curr-title">${esc(r[0]||'')}</div>
-                        <div class="curr-meta">Due ${fmtDate(r[1])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
-                        <div class="curr-meta mt-4">${isLocked(r[5])?'<span class="curr-lock-badge">🔒 Locked</span>':'<span class="curr-open-badge">Open: '+esc(formatCountdown(r[5]))+'</span>'}</div>
-                    </div>`;
-                }).join('')||'<div class="muted text-small">No assignments posted yet.</div>'}
+                ${existingCards}
             </div>
         </div>`;
 }
@@ -1176,8 +1308,9 @@ function attachPostAssignEvents() {
         const start=document.getElementById('pa-start').value;
         const hours=document.getElementById('pa-hours').value;
         const max=document.getElementById('pa-max').value;
+        const instructions=document.getElementById('pa-instructions').value;
         const err=document.getElementById('pa-err');
-        if(!name||!slides||!due||!start||!hours||!max){err.textContent='All fields are required.';return;}
+        if(!name||!due||!start||!hours||!max){err.textContent='Name, dates, hours and max volunteers are required.';return;}
         err.textContent='';
         const btn=document.getElementById('pa-submit-btn');
         btn.disabled=true;btn.textContent='Posting…';
@@ -1185,17 +1318,123 @@ function attachPostAssignEvents() {
             await postAction('create_curriculum',{
                 assignmentName:name,dueDate:due,hours,contributors:'',
                 slidesLink:slides,startDate:start,maxVolunteers:max,
-                registeredVolunteers:'',postedBy:S.user?.name||'Director',
-                postedDate:new Date().toISOString(),
+                registeredVolunteers:'',instructions,
             });
             toast(`"${name}" posted!`,'success');
-            ['pa-name','pa-slides','pa-due','pa-start','pa-hours','pa-max'].forEach(id=>{document.getElementById(id).value='';});
+            ['pa-name','pa-slides','pa-due','pa-start','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
             const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
             await loadDirectorData(track).catch(()=>{});
             viewDirectorPanel('post-assignment');
         } catch(e){err.textContent=e.message;}
         btn.disabled=false;btn.textContent='📋 Post Assignment';
     };
+
+    document.querySelectorAll('.dir-edit-btn').forEach(btn=>{
+        btn.onclick=()=>{
+            const name=btn.dataset.name;
+            const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
+            if(r)showEditAssignment(r);
+        };
+    });
+
+    document.querySelectorAll('.dir-startnow-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const name=btn.dataset.name;
+            if(!confirm(`Start "${name}" now?\n\nThis will close registration immediately.`))return;
+            btn.disabled=true;btn.textContent='Starting…';
+            try {
+                await postAction('edit_curriculum',{assignmentName:name,fields:{startDate:localYesterday()}});
+                toast(`Registration closed — "${name}" has started.`,'success');
+                const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+                await loadDirectorData(track).catch(()=>{});
+                viewDirectorPanel('post-assignment');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='▶ Start Now';}
+        };
+    });
+
+    document.querySelectorAll('.dir-finishearly-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const name=btn.dataset.name;
+            if(!confirm(`Mark "${name}" as finished early?\n\nThis sets the due date to yesterday and marks the assignment as completed.`))return;
+            btn.disabled=true;btn.textContent='Finishing…';
+            try {
+                await postAction('edit_curriculum',{assignmentName:name,fields:{startDate:localYesterday(),dueDate:localYesterday()}});
+                toast(`"${name}" marked as completed.`,'success');
+                const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+                await loadDirectorData(track).catch(()=>{});
+                viewDirectorPanel('post-assignment');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✓ Finish Early';}
+        };
+    });
+}
+
+function showEditAssignment(r) {
+    const name=r[0]||'';
+    const html=`
+        <div class="modal-header">
+            <div class="modal-title">Edit Assignment</div>
+            <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group mb-12">
+                <div class="form-label" style="margin-bottom:4px">Assignment</div>
+                <div style="font-weight:600;color:var(--text2)">${esc(name)}</div>
+            </div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label class="form-label">Slides Link</label>
+                    <input class="form-input" id="ed-slides" value="${esc(r[4]||'')}" placeholder="https://…">
+                </div>
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Due Date &amp; Time</label>
+                        <input class="form-input" type="datetime-local" id="ed-due" value="${esc(toDateTimeLocal(r[1]))}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Registration Lock Date &amp; Time</label>
+                        <input class="form-input" type="datetime-local" id="ed-start" value="${esc(toDateTimeLocal(r[5]))}">
+                    </div>
+                </div>
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Hours Credit</label>
+                        <input class="form-input" type="number" id="ed-hours" value="${esc(r[2]||'')}" min="0" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Max Volunteers</label>
+                        <input class="form-input" type="number" id="ed-max" value="${esc(r[6]||'')}" min="1">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Instructions</label>
+                    <textarea class="form-textarea" id="ed-instructions" style="min-height:100px">${esc(r[8]||'')}</textarea>
+                </div>
+                <div class="form-err" id="ed-err"></div>
+                <button class="btn btn-primary" id="ed-submit-btn">Save Changes</button>
+            </div>
+        </div>`;
+    const close=openModal(html);
+    document.getElementById('ed-submit-btn').addEventListener('click',async()=>{
+        const slides=document.getElementById('ed-slides').value.trim();
+        const due=document.getElementById('ed-due').value;
+        const start=document.getElementById('ed-start').value;
+        const hours=document.getElementById('ed-hours').value;
+        const max=document.getElementById('ed-max').value;
+        const instructions=document.getElementById('ed-instructions').value;
+        const err=document.getElementById('ed-err');
+        if(!due){err.textContent='Due date is required.';return;}
+        err.textContent='';
+        const btn=document.getElementById('ed-submit-btn');
+        btn.disabled=true;btn.textContent='Saving…';
+        try {
+            await postAction('edit_curriculum',{assignmentName:name,fields:{slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions}});
+            toast(`"${name}" updated!`,'success');
+            close();
+            const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+            await loadDirectorData(track).catch(()=>{});
+            viewDirectorPanel('post-assignment');
+        } catch(e){err.textContent=e.message;btn.disabled=false;btn.textContent='Save Changes';}
+    });
 }
 
 /* ─── GIVE HOURS (DOC) ──────────────────────────────────────── */
