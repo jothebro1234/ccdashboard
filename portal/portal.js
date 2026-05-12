@@ -345,8 +345,6 @@ function initGoogleSignIn() {
     google.accounts.id.initialize({
         client_id:CONFIG.GOOGLE_CLIENT_ID,
         callback:handleGoogleSignIn,
-        auto_select:true,
-        cancel_on_tap_outside:false,
     });
     const wrap=document.getElementById('g-btn-wrap');
     if(wrap){
@@ -559,11 +557,11 @@ function activateSidebarItem(view) {
 
 const PALETTE=['#38bdf8','#a78bfa','#22d3ee','#f472b6','#fb923c','#34d399','#fbbf24','#818cf8'];
 function avHTML(name,avatar,size) {
+    const svg=initSVG(name,size);
     if(avatar&&/^https?:\/\//.test(avatar)){
-        const fb=initSVG(name,size).replace(/'/g,"\\'");
-        return `<img src="${esc(avatar)}" alt="${esc(name)}" loading="lazy" onerror="this.outerHTML='${fb}'">`;
+        return `${svg}<img src="${esc(avatar)}" alt="${esc(name)}" loading="lazy" onerror="this.style.display='none'">`;
     }
-    return initSVG(name,size);
+    return svg;
 }
 function initSVG(name,size) {
     const color=PALETTE[(name||'').charCodeAt(0)%PALETTE.length];
@@ -583,7 +581,7 @@ function renderUserInfo() {
         <div class="sb-av">${avHTML(u.name||'?',u.avatar,34)}</div>
         <div style="min-width:0">
             <div class="sb-name">${esc(u.name||'Director')}</div>
-            <div class="sb-meta">${u.track?`${track.icon||''} ${u.track}`:(CONFIG.DIRECTORS[S.role]||{}).title||''} ${u.tier&&u.tier!=='Exec'?`· T${u.tier}`:(u.tier==='Exec'?'· Exec':'')}</div>
+            <div class="sb-meta">${u.track?`${track.icon||''} ${u.track}`:(CONFIG.DIRECTORS[S.role]||{}).title||''} ${u.tier?(()=>{const t=CONFIG.TIERS[u.tier];return t?`· ${t.icon} ${t.name}`:''})():''}</div>
         </div>`;
 }
 
@@ -652,13 +650,27 @@ function viewDashboard() {
         </div>`;
     }).join('');
 
+    const directorRole=(CONFIG.TRACKS[u.track]||{}).role;
+    const dirInfo=directorRole?CONFIG.DIRECTORS[directorRole]:null;
+    const president=CONFIG.DIRECTORS['president'];
+    const trackColor=(track.color)||'var(--blue)';
+    const trackColorG=(track.glow)||'rgba(56,189,248,.12)';
+
     root.innerHTML=`
         <div class="view-header">
             <div>
                 <div class="view-title">Welcome back, ${esc((u.name||'').split(' ')[0])} 👋</div>
-                <div class="view-subtitle">${track.icon||''} ${u.track||'Curio Crate'} · ${tierBadge(u.tier)}</div>
+                <div class="view-subtitle">${tierBadge(u.tier)}</div>
             </div>
         </div>
+        ${u.track?`<div class="dash-track-banner" style="--track-color:${trackColor};--track-glow:${trackColorG}">
+            <div class="dash-track-icon">${track.icon||'🏷'}</div>
+            <div class="dash-track-info">
+                <div class="dash-track-name">${esc(u.track)} Team</div>
+                <div class="dash-track-sub">${u.lead?'Team Lead · ':''}Curio Crate Volunteer</div>
+            </div>
+            ${tierBadge(u.tier)}
+        </div>`:''}
         <div class="card-grid card-grid-4 mb-20">
             <div class="stat-card">
                 <div class="stat-icon" style="background:var(--blue-g)">⏱</div>
@@ -677,11 +689,32 @@ function viewDashboard() {
                 <div><div class="stat-val" style="color:var(--gold)">${regs.length}</div><div class="stat-lbl">Registered</div></div>
             </div>
         </div>
-        <div>
-            <div class="section-title">YOUR ACTIVE REGISTRATIONS</div>
-            ${regs.length
-                ? regCards+'<button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate(\'curriculum\')">View all assignments →</button>'
-                : '<div class="card"><div class="muted text-small">No active registrations yet.</div><button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'curriculum\')">Browse Assignments →</button></div>'}
+        <div class="dash-two-col">
+            <div>
+                <div class="section-title">YOUR ACTIVE REGISTRATIONS</div>
+                ${regs.length
+                    ? regCards+'<button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate(\'curriculum\')">View all assignments →</button>'
+                    : '<div class="card"><div class="muted text-small">No active registrations yet.</div><button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'curriculum\')">Browse Assignments →</button></div>'}
+            </div>
+            <div>
+                <div class="section-title">YOUR DIRECTORS</div>
+                <div class="card dash-directors-card">
+                    ${dirInfo?`<div class="dash-dir-row">
+                        <div class="dash-dir-icon" style="background:${trackColorG};color:${trackColor}">${track.icon||'👤'}</div>
+                        <div>
+                            <div class="dash-dir-title">${esc(dirInfo.title)}</div>
+                            <div class="dash-dir-name">${esc(dirInfo.name)}</div>
+                        </div>
+                    </div>`:''}
+                    <div class="dash-dir-row" style="${dirInfo?'margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)':''}">
+                        <div class="dash-dir-icon" style="background:var(--gold-g);color:var(--gold)">👑</div>
+                        <div>
+                            <div class="dash-dir-title">President</div>
+                            <div class="dash-dir-name">${esc((president||{}).name||CONFIG.PRESIDENT_NAME||'')}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>`;
     // Clicking a registration card opens the detail modal
     root.querySelectorAll('.dash-assign-card').forEach(card=>{
@@ -1044,7 +1077,7 @@ function viewMyProgress() {
                 <div class="tier-step-icon">${t.icon}</div>
                 <div style="flex:1">
                     <div class="tier-step-name">${tierBadge(tier)}</div>
-                    <div class="tier-step-lbl">${tier==='Exec'?'Invitation only':'Tier '+tier}</div>
+                    <div class="tier-step-lbl">${tier==='Exec'?'Invitation only':`Level ${tier} · ${t.name}`}</div>
                 </div>
                 ${statusHTML}
             </div>

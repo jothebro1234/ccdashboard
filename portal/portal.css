@@ -232,7 +232,9 @@ body {
     overflow: hidden; border: 1.5px solid var(--border-hi);
     display: flex; align-items: center; justify-content: center;
 }
-.sb-av img, .sb-av svg { width: 100%; height: 100%; object-fit: cover; }
+.sb-av { position: relative; }
+.sb-av svg { width: 100%; height: 100%; display: block; }
+.sb-av img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .sb-name { font-weight: 600; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-meta { font-size: 11px; color: var(--textm); margin-top: 1px; }
 .sb-lb-link {
@@ -675,7 +677,9 @@ body {
 .p3 .pod-rank { color:var(--bronze); }
 .pod-av { width:60px;height:60px;border-radius:50%;overflow:hidden;margin:0 auto 10px;border:2px solid var(--border-hi);display:flex;align-items:center;justify-content:center; }
 .p1 .pod-av { width:68px;height:68px; }
-.pod-av img, .pod-av svg { width:100%;height:100%;object-fit:cover; }
+.pod-av { position: relative; }
+.pod-av svg { width:100%;height:100%;display:block; }
+.pod-av img { position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%; }
 .pod-name { font-weight:700; font-size:13px; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pod-disc { font-size:11px; color:var(--textm); }
 .pod-stat { font-family:'Orbitron',sans-serif; font-size:20px; font-weight:700; color:var(--blue); margin-top:6px; }
@@ -691,7 +695,9 @@ body {
 .lb-row:hover { background: var(--glass-hi); }
 .lb-row-rank { font-family:'Orbitron',sans-serif; font-size:14px; font-weight:700; color:rgba(255,255,255,.15); min-width:30px; text-align:right; }
 .lb-row-av { width:36px;height:36px;border-radius:50%;overflow:hidden;border:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center; }
-.lb-row-av img, .lb-row-av svg { width:100%;height:100%;object-fit:cover; }
+.lb-row-av { position: relative; }
+.lb-row-av svg { width:100%;height:100%;display:block; }
+.lb-row-av img { position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%; }
 .lb-row-info { flex:1; min-width:0; }
 .lb-row-name { font-weight:600; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .lb-row-sub { font-size:11px; color:var(--textm); }
@@ -713,6 +719,28 @@ body {
    DASHBOARD QUICK CARDS
    ═══════════════════════════════════════════════════════════════ */
 .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.dash-two-col { display: grid; grid-template-columns: 1fr 360px; gap: 16px; align-items: start; }
+
+/* Track banner */
+.dash-track-banner {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--track-glow); border: 1px solid color-mix(in srgb, var(--track-color) 30%, transparent);
+    border-radius: var(--r); padding: 14px 18px; margin-bottom: 18px;
+}
+.dash-track-icon { font-size: 26px; flex-shrink: 0; }
+.dash-track-info { flex: 1; min-width: 0; }
+.dash-track-name { font-size: 15px; font-weight: 700; color: var(--track-color); }
+.dash-track-sub { font-size: 11px; color: var(--textm); margin-top: 2px; }
+
+/* Directors card */
+.dash-directors-card { padding: 16px 18px; }
+.dash-dir-row { display: flex; align-items: center; gap: 12px; }
+.dash-dir-icon {
+    width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; font-size: 16px; flex-shrink: 0;
+}
+.dash-dir-title { font-size: 10px; font-weight: 700; color: var(--textm); text-transform: uppercase; letter-spacing: .06em; }
+.dash-dir-name { font-size: 13px; font-weight: 600; color: var(--text); margin-top: 1px; }
 .dash-wide { grid-column: 1/-1; }
 .cycle-card {
     background: var(--glass); border: 1px solid var(--border);
@@ -1000,6 +1028,7 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
     .view-root { padding: 16px 16px 80px; }
     .mob-toggle { display: flex; }
     .dash-grid { grid-template-columns: 1fr; }
+    .dash-two-col { grid-template-columns: 1fr; }
     .card-grid-4 { grid-template-columns: repeat(2, 1fr); }
     .card-grid-3 { grid-template-columns: repeat(2, 1fr); }
     .form-grid-2 { grid-template-columns: 1fr; }
