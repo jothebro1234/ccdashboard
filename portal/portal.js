@@ -477,7 +477,6 @@ function launchPortal() {
     renderUserInfo();
     navigate('dashboard');
     setupMobileToggle();
-    showCinematic();
     startPolling();
 }
 
@@ -635,23 +634,20 @@ function viewDashboard() {
 
     const regCards=regs.slice(0,3).map(r=>{
         const locked=isClosed(r[5],r[1]);
+        const done=isCompleted(r[1]);
         const maxVols=parseInt(r[6])||0;
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
-        const pct=maxVols?Math.min(100,(filled/maxVols)*100):0;
         const startDate=r[5]||'';
         const countdown=formatCountdown(startDate);
         return `<div class="curr-card dash-assign-card" data-assign-name="${esc(r[0]||'')}" style="cursor:pointer">
-            <div class="curr-header">
+            <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
                     <div class="curr-title">${esc(r[0]||'Assignment')}</div>
-                    <div class="curr-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(String(r[2]||0))}h credit</div>
-                    ${!locked&&startDate?`<div class="curr-signup-close">🔔 Closes ${fmtDateTimeStr(startDate)}</div>`:''}
+                    <div class="curr-meta" style="margin-top:4px">📅 Due ${fmtDateTimeStr(r[1])} · ⏱ ${esc(String(r[2]||0))}h credit</div>
+                    ${!locked&&startDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Closes ${fmtDateTimeStr(startDate)}</div>`:''}
+                    ${done?`<div class="curr-waiting">⏳ Waiting for director to confirm hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots filled</div>`}
                 </div>
-                ${locked?'<span class="curr-lock-badge">🔒 Locked</span>':`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`}
-            </div>
-            <div class="slot-bar-wrap mt-8">
-                <div class="slot-bar-track"><div class="slot-bar-fill" style="width:${pct}%"></div></div>
-                <div class="slot-info">${filled}/${maxVols||'?'} in progress</div>
+                <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':locked?'<span class="curr-lock-badge">🔒 Locked</span>':`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`}</div>
             </div>
         </div>`;
     }).join('');
@@ -853,28 +849,50 @@ function currCardHTML(r,lowerName) {
     const startDate=r[5]||'';
     const maxVols=parseInt(r[6])||0;
     const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
-    const filled=regList.length;
     const locked=isClosed(startDate,r[1]);
     const done=isCompleted(r[1]);
     const isCredited=credited.some(n=>n.toLowerCase()===lowerName);
     const isRegistered=regList.some(n=>n.toLowerCase()===lowerName);
-    const isFull=maxVols>0&&filled>=maxVols;
+    const isFull=maxVols>0&&regList.length>=maxVols;
     const countdown=formatCountdown(startDate);
-    const pct=maxVols?Math.min(100,(filled/maxVols)*100):0;
 
-    const discordMap={};
-    (S.data.allVolunteers||[]).forEach(v=>{discordMap[v.name.toLowerCase()]=v.discord;});
-
-    const volChips=regList.map(n=>{
-        const disc=discordMap[n.toLowerCase()]||'';
-        return `<span class="vol-chip">${esc(n)}${disc?' · @'+esc(disc):''}</span>`;
-    }).join('');
-    const creditedChips=credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('');
-
+    // Status + lock badges
     let statusBadge='';
-    if(isCredited)statusBadge='<span class="curr-credit-badge">✅ Hours credited</span>';
-    else if(isRegistered)statusBadge='<span class="curr-reg-badge">✋ You\'re in</span>';
+    if(isCredited)statusBadge='<span class="curr-credit-badge">✅ Hours given</span>';
+    else if(isRegistered)statusBadge='<span class="curr-reg-badge">✋ Registered</span>';
+    const lockBadge=done
+        ?'<span class="curr-done-badge">✅ Completed</span>'
+        :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
+        :`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`;
 
+    const signupCloseHTML=!done&&!locked&&startDate
+        ?`<div class="curr-signup-close">🔔 Signups close <strong>${fmtDateTimeStr(startDate)}</strong></div>`:'';
+
+    // Slot grid: filled names + empty open slots
+    const slotsCount=maxVols>0?maxVols:regList.length;
+    const slotItems=[];
+    for(let i=0;i<slotsCount;i++){
+        const vol=regList[i];
+        if(vol){
+            const inits=vol.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+            const isYou=vol.toLowerCase()===lowerName;
+            slotItems.push(`<div class="vol-slot ${isYou?'slot-you':'slot-filled'}"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name">${esc(vol)}</span></div>`);
+        } else {
+            slotItems.push(`<div class="vol-slot slot-empty"><div class="vol-slot-av"></div><span class="vol-slot-name">Open</span></div>`);
+        }
+    }
+
+    // Hours-confirmed section
+    let creditedHTML='';
+    if(credited.length){
+        const cslots=credited.map(n=>{
+            const inits=n.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+            return `<div class="vol-slot slot-credited"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name">${esc(n)}</span></div>`;
+        }).join('');
+        creditedHTML=`<div class="curr-subsection"><div class="curr-subsection-lbl">Hours confirmed</div><div class="slot-grid">${cslots}</div></div>`;
+    }
+
+    // Action buttons (no Details button — click card to open detail)
     let actionHTML='';
     if(!isCredited){
         if(!locked&&!isRegistered&&!isFull){
@@ -887,43 +905,34 @@ function currCardHTML(r,lowerName) {
             actionHTML='<span class="muted text-small">Slots full</span>';
         }
     }
-    actionHTML+=` <button class="btn btn-ghost btn-sm curr-detail-btn" data-name="${esc(name)}">📋 Details</button>`;
 
     const cardCls=done?'curr-completed':locked&&!isCredited?'curr-locked':'';
-    const lockBadge=done
-        ?'<span class="curr-done-badge">✅ Completed</span>'
-        :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
-        :`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`;
-
-    const signupCloseHTML=!done&&!locked&&startDate
-        ?`<div class="curr-signup-close">🔔 Signups close on <strong>${fmtDateTimeStr(startDate)}</strong></div>`:'';
-
-    return `<div class="curr-card ${cardCls} ${isCredited?'curr-credited':''}">
-        <div class="curr-header">
+    return `<div class="curr-card ${cardCls} ${isCredited?'curr-credited':''} curr-clickable" data-name="${esc(name)}">
+        <div style="display:flex;align-items:flex-start;gap:12px">
             <div style="flex:1;min-width:0">
                 <div class="curr-title">${esc(name)}</div>
-                <div class="curr-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(hours)}h credit</div>
+                <div class="curr-meta" style="margin-top:5px">📅 Due ${fmtDateTimeStr(r[1])} · ⏱ ${esc(hours)}h credit</div>
+                ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
                 ${signupCloseHTML}
             </div>
-            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
-                ${statusBadge}
-                ${lockBadge}
-            </div>
+            <div style="flex-shrink:0">${lockBadge}</div>
         </div>
-        <div class="slot-bar-wrap mt-12">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-                <span class="muted text-small">${filled} / ${maxVols||'?'} in progress</span>
-                ${isFull&&!isRegistered?'<span class="curr-full-badge">FULL</span>':''}
-            </div>
-            <div class="slot-bar-track"><div class="slot-bar-fill" style="width:${pct}%"></div></div>
-        </div>
-        ${regList.length?`<div class="vol-chips mt-10"><div class="muted text-small mb-4">Registered:</div>${volChips}</div>`:''}
-        ${credited.length?`<div class="vol-chips mt-6"><div class="muted text-small mb-4">Hours given to:</div>${creditedChips}</div>`:''}
-        <div class="curr-actions mt-12">${actionHTML}</div>
+        ${slotItems.length?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.055)"><div class="slot-grid">${slotItems.join('')}</div></div>`:''}
+        ${creditedHTML}
+        ${actionHTML?`<div class="curr-actions" style="margin-top:12px">${actionHTML}</div>`:''}
     </div>`;
 }
 
 function attachCurrEvents() {
+    // Clicking the card body (not a button) opens the detail modal
+    document.querySelectorAll('.curr-card.curr-clickable').forEach(card=>{
+        card.addEventListener('click',e=>{
+            if(e.target.closest('.btn'))return;
+            const name=card.dataset.name;
+            const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
+            if(r)showAssignmentDetail(r);
+        });
+    });
     document.querySelectorAll('.curr-reg-btn').forEach(btn=>{
         btn.onclick=async()=>{
             const assignmentName=btn.dataset.name,volunteerName=btn.dataset.vol;
@@ -946,13 +955,6 @@ function attachCurrEvents() {
                 await loadVolunteerData(volunteerName).catch(()=>{});
                 renderCurrList(document.querySelector('#curr-tabs .panel-tab.active')?.dataset.tab||'all');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✕ Unregister';}
-        };
-    });
-    document.querySelectorAll('.curr-detail-btn').forEach(btn=>{
-        btn.onclick=()=>{
-            const name=btn.dataset.name;
-            const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
-            if(r)showAssignmentDetail(r);
         };
     });
 }
@@ -1018,7 +1020,7 @@ function viewMyProgress() {
     const u=S.user||{};
     const stats=S.data.myStats||{totalHours:0,curricCount:0,eventsCount:0};
     const currentTier=u.tier||'1';
-    const tierOrder=[1,2,3,4,'Exec'];
+    const tierOrder=[1,2,3,4];
 
     const tierHTML=tierOrder.map(tier=>{
         const t=CONFIG.TIERS[tier]||CONFIG.TIERS[1];
@@ -1070,9 +1072,6 @@ function viewMyProgress() {
                 <div class="stat-icon" style="background:var(--violet-g)">🎓</div>
                 <div><div class="stat-val" style="color:var(--violet)">${stats.eventsCount}</div><div class="stat-lbl">Events Attended</div></div>
             </div>
-        </div>
-        <div class="card mb-20" style="border-color:rgba(56,189,248,.15)">
-            <div class="muted text-small" style="line-height:1.7"><strong style="color:var(--text2)">How tiers work:</strong> Tiers are not automatic — your director nominates you based on the quality and consistency of your contributions. Once nominated, you'll have a conversation with ${esc(CONFIG.PRESIDENT_NAME)} before a promotion is confirmed. Focus on great work; your director handles the rest.</div>
         </div>
         <div class="section-title">TIER JOURNEY</div>
         <div class="progress-journey">${tierHTML}</div>`;

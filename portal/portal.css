@@ -224,8 +224,8 @@ body {
 
 .sb-footer { flex-shrink: 0; border-top: 1px solid var(--border); }
 .sb-user {
-    padding: 14px 18px 10px;
-    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px 10px 20px;
+    display: flex; align-items: center; gap: 11px;
 }
 .sb-av {
     width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
@@ -237,7 +237,7 @@ body {
 .sb-meta { font-size: 11px; color: var(--textm); margin-top: 1px; }
 .sb-lb-link {
     display: flex; align-items: center; gap: 6px;
-    margin: 0 14px 14px; padding: 8px 12px;
+    margin: 0 18px 14px; padding: 8px 12px;
     border: 1px solid var(--border); border-radius: var(--rsm);
     color: var(--textm); font-size: 11px; text-decoration: none;
     transition: border-color .2s, color .2s;
@@ -1241,3 +1241,53 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
 
 /* ─── Credited cards dimmed in Mine tab ─────────────────────── */
 .curr-card.curr-credited { opacity: 0.6; }
+
+/* ─── Slot system ───────────────────────────────────────────── */
+.slot-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+.vol-slot {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 12px 5px 5px; border-radius: 100px;
+    font-size: 12px; font-weight: 600; white-space: nowrap;
+    transition: opacity .15s;
+}
+.slot-filled {
+    background: rgba(56,189,248,.07); border: 1px solid rgba(56,189,248,.18); color: var(--text);
+}
+.slot-you {
+    background: rgba(56,189,248,.14); border: 1px solid rgba(56,189,248,.4); color: var(--blue);
+}
+.slot-empty {
+    background: transparent; border: 1px dashed rgba(255,255,255,.11); color: var(--textm);
+}
+.slot-credited {
+    background: rgba(52,211,153,.08); border: 1px solid rgba(52,211,153,.28); color: var(--green);
+}
+.vol-slot-av {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; flex-shrink: 0; letter-spacing: 0;
+}
+.slot-filled .vol-slot-av   { background: rgba(56,189,248,.18); color: var(--blue); }
+.slot-you .vol-slot-av      { background: rgba(56,189,248,.28); color: var(--blue); }
+.slot-empty .vol-slot-av    { background: rgba(255,255,255,.05); color: var(--textm); font-size: 12px; }
+.slot-credited .vol-slot-av { background: rgba(52,211,153,.2); color: var(--green); }
+.vol-slot-name { line-height: 1; }
+
+/* Clickable card hover */
+.curr-card.curr-clickable { cursor: pointer; }
+.curr-card.curr-clickable:hover { border-color: rgba(56,189,248,.22); }
+
+/* Hours-confirmed subsection */
+.curr-subsection { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.05); }
+.curr-subsection-lbl {
+    font-size: 10px; font-weight: 700; color: var(--textm);
+    text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px;
+}
+
+/* Waiting for hours notice */
+.curr-waiting {
+    display: inline-block; margin-top: 7px;
+    font-size: 12px; font-weight: 600; color: var(--orange);
+    background: var(--orange-g); border: 1px solid rgba(245,158,11,.2);
+    border-radius: 8px; padding: 5px 10px;
+}
