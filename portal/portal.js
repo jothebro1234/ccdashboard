@@ -60,6 +60,17 @@ function isLocked(startDate) {
     if(!startDate)return false;
     return new Date(startDate)<=new Date();
 }
+/* An assignment is closed for registration if its lock date OR due date has passed */
+function isClosed(startDate,dueDate) {
+    if(startDate&&new Date(startDate)<=new Date())return true;
+    if(dueDate&&new Date(dueDate)<new Date())return true;
+    return false;
+}
+/* True if the assignment is done: due date passed and hours have been given (col D filled) */
+function isCompleted(dueDate,contributors) {
+    if(!dueDate)return false;
+    return new Date(dueDate)<new Date()&&(contributors||'').trim()!=='';
+}
 function parseCSV(raw) {
     const rows=[];let i=0;
     while(i<raw.length){
@@ -95,7 +106,10 @@ async function postAction(action,payload) {
         throw new Error('APPS_SCRIPT_URL not configured');
     }
     const body=JSON.stringify({action,...payload});
-    await fetch(CONFIG.APPS_SCRIPT_URL,{method:'POST',body,headers:{'Content-Type':'text/plain'}});
+    const res=await fetch(CONFIG.APPS_SCRIPT_URL,{method:'POST',body,headers:{'Content-Type':'text/plain'}});
+    let data;
+    try{data=await res.json();}catch(_){return;} // non-JSON response is fine
+    if(data&&data.ok===false)throw new Error(data.error||'Server returned an error');
 }
 
 async function loadVolunteerData(name) {
@@ -229,7 +243,8 @@ function initGoogleSignIn() {
             text:'signin_with',shape:'pill',
         });
     }
-    google.accounts.id.prompt();
+    // prompt() triggers One Tap (FedCM) which fails in some browser configs;
+    // the rendered button above works independently and is sufficient.
 }
 
 async function handleGoogleSignIn(credentialResponse) {
@@ -630,10 +645,10 @@ function viewCurriculum() {
             <button class="btn btn-ghost btn-sm" id="curr-refresh-btn">↺ Refresh</button>
         </div>
         <div class="panel-tabs" id="curr-tabs">
-            <button class="panel-tab active" data-tab="all">All (${assignments.length})</button>
-            <button class="panel-tab" data-tab="open">Open</button>
+            <button class="panel-tab active" data-tab="open">Open</button>
             <button class="panel-tab" data-tab="mine">Mine</button>
             <button class="panel-tab" data-tab="locked">Locked</button>
+            <button class="panel-tab" data-tab="all">All (${assignments.length})</button>
         </div>
         <div id="curr-list"></div>`;
 
@@ -649,7 +664,7 @@ function viewCurriculum() {
             renderCurrList(tab.dataset.tab);
         };
     });
-    renderCurrList('all');
+    renderCurrList('open');
 }
 
 function renderCurrList(filter) {
@@ -658,8 +673,8 @@ function renderCurrList(filter) {
     const assignments=S.data.curriculum||[];
     const lower=(S.user?.name||'').toLowerCase();
     let filtered=assignments;
-    if(filter==='open')filtered=assignments.filter(r=>!isLocked(r[5]));
-    else if(filter==='locked')filtered=assignments.filter(r=>isLocked(r[5]));
+    if(filter==='open')filtered=assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1],r[3]));
+    else if(filter==='locked')filtered=assignments.filter(r=>isClosed(r[5],r[1])&&!isCompleted(r[1],r[3]));
     else if(filter==='mine')filtered=assignments.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
@@ -682,7 +697,8 @@ function currCardHTML(r,lowerName) {
     const maxVols=parseInt(r[6])||0;
     const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const filled=regList.length;
-    const locked=isLocked(startDate);
+    const locked=isClosed(startDate,r[1]); // locked by start date OR past due date
+    const done=isCompleted(r[1],r[3]);     // past due + hours given
     const isCredited=credited.some(n=>n.toLowerCase()===lowerName);
     const isRegistered=regList.some(n=>n.toLowerCase()===lowerName);
     const isFull=maxVols>0&&filled>=maxVols;
@@ -715,7 +731,12 @@ function currCardHTML(r,lowerName) {
         }
     }
 
-    return `<div class="curr-card ${locked&&!isCredited?'curr-locked':''} ${isCredited?'curr-credited':''}">
+    const cardCls=done?'curr-completed':locked&&!isCredited?'curr-locked':'';
+    const lockBadge=done
+        ?'<span class="curr-done-badge">✅ Completed</span>'
+        :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
+        :`<span class="curr-countdown">${esc(countdown)}</span>`;
+    return `<div class="curr-card ${cardCls} ${isCredited?'curr-credited':''}">
         <div class="curr-header">
             <div style="flex:1;min-width:0">
                 <div class="curr-title">${esc(name)}</div>
@@ -726,7 +747,7 @@ function currCardHTML(r,lowerName) {
             </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0">
                 ${statusBadge}
-                ${locked?'<span class="curr-lock-badge">🔒 Locked</span>':`<span class="curr-countdown">${esc(countdown)}</span>`}
+                ${lockBadge}
             </div>
         </div>
         <div class="slot-bar-wrap mt-12">
