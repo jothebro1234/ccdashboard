@@ -374,14 +374,12 @@ function renderSidebar() {
         { id:'tasks',        icon:'📋', label:'My Tasks'     },
         { id:'progress',     icon:'📈', label:'My Progress'  },
         { id:'sessions',     icon:'📅', label:'Sessions'     },
-        { id:'wins',         icon:'🏆', label:'Wins Board'   },
         { id:'notifications',icon:'🔔', label:'Notifications' },
         { id:'leaderboard',  icon:'🥇', label:'Leaderboard'  },
     ];
     const dirItems = [
         { id:'dashboard',  icon:'🏠', label:'Overview'       },
         { id:'director',   icon:'⚙️', label:'Director Panel' },
-        { id:'wins',       icon:'🏆', label:'Wins Board'     },
         { id:'leaderboard',icon:'🥇', label:'Leaderboard'   },
     ];
     const items = isDir ? dirItems : volItems;
@@ -634,7 +632,6 @@ function viewDashboard() {
             <div class="wins-feed">
                 ${recentWins.slice(0,3).map(winCardHTML).join('')}
             </div>
-            <button class="btn btn-ghost btn-sm btn-full mt-12" onclick="navigate('wins')">Full Wins Board →</button>
         </div>` : ''}`;
 }
 
