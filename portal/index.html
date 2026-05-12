@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curio Crate — Volunteer Portal</title>
+    <link rel="icon" type="image/png" href="../cclogo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="portal.css">
+</head>
+<body>
+
+<!-- Animated background -->
+<div class="bg-wrap" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+    <div class="blob b4"></div>
+    <div class="grid-overlay"></div>
+</div>
+
+<!-- AUTH GATE (shown until authenticated) -->
+<div class="auth-gate" id="auth-gate">
+    <div class="auth-card">
+        <img src="../cclogo.png" alt="Curio Crate" class="auth-logo" onerror="this.style.display='none'">
+        <div class="auth-org">CURIO CRATE</div>
+        <div class="auth-title" id="auth-title">Volunteer Portal</div>
+        <div id="auth-body">
+            <!-- Populated by portal.js based on ?vol= or ?role= param -->
+        </div>
+    </div>
+</div>
+
+<!-- PORTAL SHELL (hidden until auth) -->
+<div class="portal-shell" id="portal-shell" style="display:none">
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sb-brand">
+            <img src="../cclogo.png" alt="" class="sb-logo" onerror="this.style.display='none'">
+            <div class="sb-brand-text">
+                <div class="sb-org">CURIO CRATE</div>
+                <div class="sb-portal-lbl">VOLUNTEER PORTAL</div>
+            </div>
+        </div>
+
+        <nav class="sb-nav" id="sb-nav"></nav>
+
+        <div class="sb-footer">
+            <div class="sb-user" id="sb-user"></div>
+            <a href="../main/" class="sb-lb-link" title="Public Leaderboard">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+                Public Leaderboard
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="portal-main" id="portal-main">
+        <div class="view-root" id="view-root"></div>
+    </main>
+
+</div>
+
+<!-- Mobile sidebar toggle -->
+<button class="mob-toggle" id="mob-toggle" aria-label="Toggle menu">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="20" height="20">
+        <line x1="3" y1="8"  x2="21" y2="8"/>
+        <line x1="3" y1="16" x2="21" y2="16"/>
+    </svg>
+</button>
+
+<!-- Toast -->
+<div id="toast-wrap"></div>
+
+<!-- Loading overlay -->
+<div class="portal-loading" id="portal-loading">
+    <div class="pl-inner">
+        <div class="pl-ring"></div>
+        <div class="pl-txt">Loading Portal</div>
+    </div>
+</div>
+
+<script src="../config.js"></script>
+<script src="portal.js"></script>
+</body>
+</html>
