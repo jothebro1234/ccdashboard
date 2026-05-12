@@ -188,6 +188,7 @@ function parseURLParams() {
 
 async function initAuth() {
     const { role } = parseURLParams();
+    hideLoading();
     if (role) {
         showRoleAuth(role);
     } else {
