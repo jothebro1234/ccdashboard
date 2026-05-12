@@ -176,7 +176,8 @@ function startPolling() {
                 await loadDirectorData(track);
                 if(S.view==='director'){
                     const tab=document.querySelector('#dir-tabs .panel-tab.active')?.dataset.tab||'roster';
-                    renderDirPanel(tab);
+                    // Only re-render read-only tabs; form tabs would reset user input
+                    if(tab==='roster')renderDirPanel(tab);
                 }
             }
         } catch(_){}
@@ -336,7 +337,6 @@ function parseURLParams() {
 
 async function initAuth() {
     const{role}=parseURLParams();
-    hideLoading();
     if(role){showRoleAuth(role);}else{showLanding();}
 }
 
@@ -772,9 +772,10 @@ function viewCurriculum() {
         <div id="curr-list"></div>`;
 
     document.getElementById('curr-refresh-btn').onclick=async()=>{
-        showLoading();
+        const btn=document.getElementById('curr-refresh-btn');
+        btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
         await loadVolunteerData(u.name||'').catch(()=>{});
-        hideLoading();viewCurriculum();
+        viewCurriculum();
     };
     root.querySelectorAll('#curr-tabs .panel-tab').forEach(tab=>{
         tab.onclick=()=>{
@@ -1245,10 +1246,11 @@ function viewDirectorPanel(activeTab) {
         <div id="dir-panel-body"></div>`;
 
     document.getElementById('dir-refresh-btn').onclick=async()=>{
-        showLoading();
+        const btn=document.getElementById('dir-refresh-btn');
+        btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
         const track=isPresident?'All':(roleInfo.track||'');
         await loadDirectorData(track).catch(()=>{});
-        hideLoading();viewDirectorPanel(activeTab);
+        viewDirectorPanel(activeTab);
     };
     root.querySelectorAll('#dir-tabs .panel-tab').forEach(tab=>{
         tab.onclick=()=>{S.subTab=tab.dataset.tab;viewDirectorPanel(tab.dataset.tab);};
@@ -1380,7 +1382,7 @@ function dirPostAssignHTML() {
                         </div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Instructions <span class="muted" style="font-weight:400">(optional)</span></label>
+                        <label class="form-label">Instructions *</label>
                         <textarea class="form-textarea" id="pa-instructions" style="min-height:90px" placeholder="Describe what volunteers need to do, any requirements, etc."></textarea>
                     </div>
                     <div class="form-err" id="pa-err"></div>
@@ -1404,7 +1406,7 @@ function attachPostAssignEvents() {
         const max=document.getElementById('pa-max').value;
         const instructions=document.getElementById('pa-instructions').value;
         const err=document.getElementById('pa-err');
-        if(!name||!due||!start||!hours||!max){err.textContent='Name, dates, hours and max volunteers are required.';return;}
+        if(!name||!due||!start||!hours||!max||!instructions){err.textContent='All fields including instructions are required.';return;}
         err.textContent='';
         const btn=document.getElementById('pa-submit-btn');
         btn.disabled=true;btn.textContent='Posting…';
@@ -1733,22 +1735,30 @@ function toast(msg,type='success') {
     wrap.appendChild(el);
     setTimeout(()=>{el.classList.add('out');setTimeout(()=>el.remove(),300);},3500);
 }
-let _loadStart=0, _initialHidden=false;
+let _loadStart=0, _initialHidden=false, _hideTimer=null;
 function showLoading() {
+    if(_hideTimer){clearTimeout(_hideTimer);_hideTimer=null;}
     const el=document.getElementById('portal-loading');
-    if(el)el.classList.remove('hidden');
+    if(!el)return;
+    el.classList.remove('pl-init','hidden');
+    void el.offsetWidth; // force reflow so CSS animations restart from 0
     if(!_initialHidden) _loadStart=Date.now();
 }
 function hideLoading() {
     const el=document.getElementById('portal-loading');
-    if(!el)return;
-    if(!_initialHidden){
-        // First login: guarantee at least 4.5s so all animations fully play
-        const elapsed=Date.now()-_loadStart;
-        const delay=Math.max(0,4500-elapsed);
-        setTimeout(()=>{el.classList.add('hidden');_initialHidden=true;},delay);
-    } else {
+    if(!el||el.classList.contains('pl-init'))return; // already fully hidden
+    const doHide=()=>{
         el.classList.add('hidden');
+        _hideTimer=setTimeout(()=>{el.classList.add('pl-init');_hideTimer=null;},900);
+    };
+    if(!_initialHidden){
+        // First login: guarantee at least 5.5s so all animations fully play
+        const elapsed=Date.now()-_loadStart;
+        const delay=Math.max(0,5500-elapsed);
+        _initialHidden=true;
+        _hideTimer=setTimeout(doHide,delay);
+    } else {
+        doHide();
     }
 }
 
