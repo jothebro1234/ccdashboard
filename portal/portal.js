@@ -506,18 +506,23 @@ function showCinematic() {
     const glow=trackCfg.glow||'rgba(56,189,248,0.3)';
     const ov=document.createElement('div');
     ov.className='cin-overlay';
-    ov.innerHTML=`<div class="cin-content">
-        <div class="cin-logo" style="color:${color};filter:drop-shadow(0 0 30px ${glow})">CC</div>
-        <div class="cin-welcome">WELCOME BACK</div>
-        <div class="cin-name" style="color:${color};text-shadow:0 0 40px ${glow}">${esc(u.name||'')}</div>
-        <div class="cin-track">${esc(trackCfg.icon||'')} ${esc(u.track||'Curio Crate')}</div>
-        <div class="cin-bar-wrap"><div class="cin-bar" style="background:${color}"></div></div>
-    </div>`;
+    ov.innerHTML=`
+        <div class="cin-bg"></div>
+        <div class="cin-bg-overlay"></div>
+        <div class="cin-content">
+            <img src="../cclogo.png" class="cin-logo-img" alt="CC"
+                 style="filter:drop-shadow(0 0 36px ${glow})"
+                 onerror="this.outerHTML='<div class=cin-logo style=color:${color};filter:drop-shadow(0 0 30px ${glow})>CC</div>'">
+            <div class="cin-welcome">WELCOME BACK</div>
+            <div class="cin-name" style="color:${color};text-shadow:0 0 40px ${glow}">${esc(u.name||'')}</div>
+            <div class="cin-track">${esc(trackCfg.icon||'')} ${esc(u.track||'Curio Crate')}</div>
+            <div class="cin-bar-wrap"><div class="cin-bar" style="background:${color}"></div></div>
+        </div>`;
     document.body.appendChild(ov);
     setTimeout(()=>{
         ov.classList.add('cin-out');
         setTimeout(()=>ov.remove(),500);
-    },2300);
+    },2800);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -528,7 +533,7 @@ function renderSidebar() {
     const isDir=S.role!=='volunteer';
     const volItems=[
         {id:'dashboard',  icon:'🏠',label:'Dashboard'},
-        {id:'curriculum', icon:'📚',label:'Assignments'},
+        {id:'curriculum', icon:'📚',label:'Assignments'}, // sub-tab defaults to "Available"
         {id:'progress',   icon:'📈',label:'My Progress'},
         {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
     ];
@@ -676,22 +681,11 @@ function viewDashboard() {
                 <div><div class="stat-val" style="color:var(--gold)">${regs.length}</div><div class="stat-lbl">Registered</div></div>
             </div>
         </div>
-        <div class="dash-grid">
-            <div>
-                <div class="section-title">YOUR ACTIVE REGISTRATIONS</div>
-                ${regs.length
-                    ? regCards+'<button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate(\'curriculum\')">View all assignments →</button>'
-                    : '<div class="card"><div class="muted text-small">No active registrations yet.</div><button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'curriculum\')">Browse Assignments →</button></div>'}
-            </div>
-            <div>
-                <div class="section-title">TIER STATUS</div>
-                <div class="card">
-                    <div style="font-size:36px;margin-bottom:8px">${(CONFIG.TIERS[u.tier]||CONFIG.TIERS[1]).icon}</div>
-                    ${tierBadge(u.tier)}
-                    <div class="muted text-small mt-12" style="line-height:1.65">Tier promotions are decided by your director. Keep contributing to build your track record.</div>
-                    <button class="btn btn-ghost btn-sm btn-full mt-12" onclick="navigate('progress')">View Tier Journey →</button>
-                </div>
-            </div>
+        <div>
+            <div class="section-title">YOUR ACTIVE REGISTRATIONS</div>
+            ${regs.length
+                ? regCards+'<button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate(\'curriculum\')">View all assignments →</button>'
+                : '<div class="card"><div class="muted text-small">No active registrations yet.</div><button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'curriculum\')">Browse Assignments →</button></div>'}
         </div>`;
     // Clicking a registration card opens the detail modal
     root.querySelectorAll('.dash-assign-card').forEach(card=>{
@@ -765,15 +759,14 @@ function viewCurriculum() {
     root.innerHTML=`
         <div class="view-header">
             <div>
-                <div class="view-title">Assignments 📚</div>
-                <div class="view-subtitle">${assignments.length} total assignments</div>
+                <div class="view-title">Available Assignments 📚</div>
+                <div class="view-subtitle">${assignments.length} total · ${assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1])).length} open now</div>
             </div>
             <button class="btn btn-ghost btn-sm" id="curr-refresh-btn">↺ Refresh</button>
         </div>
         <div class="panel-tabs" id="curr-tabs">
-            <button class="panel-tab active" data-tab="open">Open</button>
+            <button class="panel-tab active" data-tab="available">Available</button>
             <button class="panel-tab" data-tab="mine">Mine</button>
-            <button class="panel-tab" data-tab="locked">Locked</button>
             <button class="panel-tab" data-tab="all">All (${assignments.length})</button>
         </div>
         <div id="curr-list"></div>`;
@@ -790,7 +783,7 @@ function viewCurriculum() {
             renderCurrList(tab.dataset.tab);
         };
     });
-    renderCurrList('open');
+    renderCurrList('available');
 }
 
 function renderCurrList(filter) {
@@ -799,13 +792,28 @@ function renderCurrList(filter) {
     const assignments=[...(S.data.curriculum||[])].reverse(); // newest first
     const lower=(S.user?.name||'').toLowerCase();
     let filtered=assignments;
-    if(filter==='open')filtered=assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1]));
-    else if(filter==='locked')filtered=assignments.filter(r=>isClosed(r[5],r[1])&&!isCompleted(r[1]));
+    // "available" = everything not yet completed (open + locked), locked appear dimmed
+    if(filter==='available')filtered=assignments.filter(r=>!isCompleted(r[1]));
     else if(filter==='mine')filtered=assignments.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
         return reg.includes(lower)||cred.includes(lower);
     });
+    // "all" = everything, simple row layout
+    if(filter==='all'){
+        listEl.innerHTML=filtered.length
+            ?filtered.map(r=>currSimpleRowHTML(r)).join('')
+            :`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No assignments yet</div></div>`;
+        // simple rows have no interactive buttons so no attachCurrEvents needed
+        listEl.querySelectorAll('.curr-simple-row').forEach(row=>{
+            row.addEventListener('click',()=>{
+                const name=row.dataset.name;
+                const r=assignments.find(x=>(x[0]||'').trim()===name.trim());
+                if(r)showAssignmentDetail(r);
+            });
+        });
+        return;
+    }
     if(!filtered.length){
         listEl.innerHTML=`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No assignments here</div></div>`;
         return;
@@ -813,6 +821,28 @@ function renderCurrList(filter) {
     listEl.innerHTML=filtered.map(r=>currCardHTML(r,lower)).join('');
     attachCurrEvents();
     startCountdownTimers();
+}
+
+function currSimpleRowHTML(r) {
+    const name=r[0]||'Untitled';
+    const hours=r[2]||'0';
+    const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const done=isCompleted(r[1]);
+    const locked=isClosed(r[5],r[1]);
+    const count=credited.length||regList.length;
+    let badge='';
+    if(done)badge='<span class="curr-done-badge" style="font-size:10px;padding:2px 8px">Done</span>';
+    else if(locked)badge='<span class="curr-lock-badge" style="font-size:10px;padding:2px 8px">Locked</span>';
+    else badge='<span class="curr-open-badge" style="font-size:10px;padding:2px 8px">Open</span>';
+    return `<div class="curr-simple-row ${done?'done':''}" data-name="${esc(name)}" style="cursor:pointer">
+        <span class="curr-simple-icon">${done?'✅':locked?'🔒':'📋'}</span>
+        <div style="flex:1;min-width:0">
+            <div class="curr-simple-name">${esc(name)}</div>
+            <div class="curr-simple-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
+        </div>
+        <span class="curr-simple-badge">${badge}</span>
+    </div>`;
 }
 
 function currCardHTML(r,lowerName) {
@@ -1000,7 +1030,7 @@ function viewMyProgress() {
         let statusHTML='';
         if(isCompleted)statusHTML='<span style="font-size:11px;font-weight:700;color:var(--green);background:var(--green-g);border:1px solid rgba(52,211,153,.3);border-radius:100px;padding:3px 10px">✓ Achieved</span>';
         else if(isCurrent)statusHTML='<span style="font-size:11px;font-weight:700;color:var(--blue);background:var(--blue-g);border:1px solid rgba(56,189,248,.3);border-radius:100px;padding:3px 10px">● Current</span>';
-        const criteria=buildTierCriteria(tier,isCompleted,isCurrent);
+        const criteria=buildTierCriteria(tier,isCompleted,isCurrent,stats);
         const metCount=criteria.filter(c=>c.met).length;
         const criteriaHTML=!isLocked_?`<div class="criteria-list mt-12">`+
             criteria.map(c=>`<div class="criteria-item ${c.met?'met':''}"><div class="criteria-check">${c.met?'✓':''}</div><span>${c.label}</span></div>`).join('')+
@@ -1047,31 +1077,37 @@ function viewMyProgress() {
         <div class="progress-journey">${tierHTML}</div>`;
 }
 
-function buildTierCriteria(tier,completed,current) {
+function buildTierCriteria(tier,completed,current,stats) {
+    const c=(stats&&stats.curricCount)||0;
+    const e=(stats&&stats.eventsCount)||0;
+    const h=(stats&&stats.totalHours)||0;
     if(tier===1)return[
-        {label:'Completed the volunteer sign-up form',met:completed||current},
-        {label:'Attended first session or orientation',met:completed},
+        {label:'Complete at least 1 curriculum assignment',met:completed||c>=1},
+        {label:'Attend at least 1 in-person event',met:completed||e>=1},
     ];
     if(tier===2)return[
-        {label:'Meaningful contribution to curriculum or events',met:completed},
-        {label:'Consistent communication with your team',met:completed},
+        {label:'Complete 3+ curriculum assignments (you: '+c+')',met:completed||c>=3},
+        {label:'Attend 2+ in-person events (you: '+e+')',met:completed||e>=2},
+        {label:'Earn 5+ total volunteer hours (you: '+h+')',met:completed||h>=5},
         {label:'Director nomination',met:completed},
     ];
     if(tier===3)return[
-        {label:'Demonstrated leadership within your track',met:completed},
-        {label:'Multiple quality curriculum or event contributions',met:completed},
-        {label:'Director nomination',met:completed},
-        {label:'Conversation with '+CONFIG.PRESIDENT_NAME,met:completed},
+        {label:'Complete 8+ curriculum assignments (you: '+c+')',met:completed||c>=8},
+        {label:'Attend 5+ in-person events (you: '+e+')',met:completed||e>=5},
+        {label:'Earn 15+ total volunteer hours (you: '+h+')',met:completed||h>=15},
+        {label:'Demonstrated leadership in your track',met:completed},
+        {label:'Director nomination + conversation with '+CONFIG.PRESIDENT_NAME,met:completed},
     ];
     if(tier===4)return[
+        {label:'Complete 15+ curriculum assignments (you: '+c+')',met:completed||c>=15},
+        {label:'Attend 10+ in-person events (you: '+e+')',met:completed||e>=10},
+        {label:'Earn 30+ total volunteer hours (you: '+h+')',met:completed||h>=30},
         {label:'Led team projects or sessions independently',met:completed},
-        {label:'Long-term sustained track record',met:completed},
-        {label:'Director nomination',met:completed},
-        {label:'Conversation with '+CONFIG.PRESIDENT_NAME,met:completed},
+        {label:'Director nomination + conversation with '+CONFIG.PRESIDENT_NAME,met:completed},
     ];
     if(tier==='Exec')return[
         {label:'Exceptional multi-year service to Curio Crate',met:completed},
-        {label:'Offered directly by President — never applied for',met:completed},
+        {label:'Invitation-only — offered directly by the President',met:completed},
     ];
     return[];
 }
