@@ -69,8 +69,12 @@ function formatCountdown(startDate) {
     if(diff<=0)return'Closes today';
     const d=Math.floor(diff/86400000);
     const h=Math.floor((diff%86400000)/3600000);
+    const m=Math.floor((diff%3600000)/60000);
+    const s=Math.floor((diff%60000)/1000);
     if(d>0)return`${d}d ${h}h left`;
-    return`${h}h left`;
+    if(h>0)return`${h}h ${m}m left`;
+    if(m>0)return`${m}m ${s}s left`;
+    return`${s}s left`;
 }
 /* Lock date is the LAST DAY registration is open; locked from the next day onwards */
 function isLocked(startDate) {
@@ -140,6 +144,45 @@ function openModal(html) {
     overlay.querySelectorAll('.modal-close').forEach(b=>b.addEventListener('click',close));
     return close;
 }
+
+/* Live countdown timer — ticks every second, updates all .curr-countdown elements */
+let _countdownTimer=null;
+function startCountdownTimers() {
+    if(_countdownTimer)clearInterval(_countdownTimer);
+    _countdownTimer=setInterval(()=>{
+        document.querySelectorAll('.curr-countdown[data-lockdate]').forEach(el=>{
+            el.textContent=formatCountdown(el.dataset.lockdate);
+        });
+    },1000);
+}
+
+/* Real-time polling — re-fetches data and re-renders current view every 30s */
+let _pollTimer=null;
+function startPolling() {
+    if(_pollTimer)clearInterval(_pollTimer);
+    _pollTimer=setInterval(async()=>{
+        try {
+            if(S.role==='volunteer'&&S.user?.name){
+                await loadVolunteerData(S.user.name);
+                if(S.view==='curriculum'){
+                    const tab=document.querySelector('#curr-tabs .panel-tab.active')?.dataset.tab||'open';
+                    renderCurrList(tab);
+                    startCountdownTimers();
+                } else if(S.view==='dashboard'){
+                    viewDashboard();
+                }
+            } else if(S.role&&S.role!=='volunteer'){
+                const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+                await loadDirectorData(track);
+                if(S.view==='director'){
+                    const tab=document.querySelector('#dir-tabs .panel-tab.active')?.dataset.tab||'roster';
+                    renderDirPanel(tab);
+                }
+            }
+        } catch(_){}
+    },30000);
+}
+
 function parseCSV(raw) {
     const rows=[];let i=0;
     while(i<raw.length){
@@ -435,6 +478,7 @@ function launchPortal() {
     navigate('dashboard');
     setupMobileToggle();
     showCinematic();
+    startPolling();
 }
 
 async function launchDirectorPortal(role) {
@@ -449,6 +493,7 @@ async function launchDirectorPortal(role) {
         renderUserInfo();
         navigate('director');
         setupMobileToggle();
+        startPolling();
     } catch(e){
         hideLoading();showAuthError(e.message);
     }
@@ -584,21 +629,24 @@ function viewDashboard() {
     const regs=S.data.myRegistrations||[];
 
     const regCards=regs.slice(0,3).map(r=>{
-        const locked=isLocked(r[5]);
+        const locked=isClosed(r[5],r[1]);
         const maxVols=parseInt(r[6])||0;
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
         const pct=maxVols?Math.min(100,(filled/maxVols)*100):0;
-        return `<div class="curr-card" onclick="navigate('curriculum')" style="cursor:pointer">
+        const startDate=r[5]||'';
+        const countdown=formatCountdown(startDate);
+        return `<div class="curr-card dash-assign-card" data-assign-name="${esc(r[0]||'')}" style="cursor:pointer">
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
                     <div class="curr-title">${esc(r[0]||'Assignment')}</div>
-                    <div class="curr-meta">Due ${fmtDate(r[1])} · ${esc(String(r[2]||0))}h credit</div>
+                    <div class="curr-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(String(r[2]||0))}h credit</div>
+                    ${!locked&&startDate?`<div class="curr-signup-close">🔔 Closes ${fmtDateTimeStr(startDate)}</div>`:''}
                 </div>
-                ${locked?'<span class="curr-lock-badge">🔒 Locked</span>':'<span class="curr-countdown">'+esc(formatCountdown(r[5]))+'</span>'}
+                ${locked?'<span class="curr-lock-badge">🔒 Locked</span>':`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`}
             </div>
             <div class="slot-bar-wrap mt-8">
                 <div class="slot-bar-track"><div class="slot-bar-fill" style="width:${pct}%"></div></div>
-                <div class="slot-info">${filled}/${maxVols||'?'} slots</div>
+                <div class="slot-info">${filled}/${maxVols||'?'} in progress</div>
             </div>
         </div>`;
     }).join('');
@@ -645,6 +693,15 @@ function viewDashboard() {
                 </div>
             </div>
         </div>`;
+    // Clicking a registration card opens the detail modal
+    root.querySelectorAll('.dash-assign-card').forEach(card=>{
+        card.addEventListener('click',()=>{
+            const name=card.dataset.assignName;
+            const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
+            if(r)showAssignmentDetail(r);
+        });
+    });
+    startCountdownTimers();
 }
 
 function viewDirectorOverview() {
@@ -739,7 +796,7 @@ function viewCurriculum() {
 function renderCurrList(filter) {
     const listEl=document.getElementById('curr-list');
     if(!listEl)return;
-    const assignments=S.data.curriculum||[];
+    const assignments=[...(S.data.curriculum||[])].reverse(); // newest first
     const lower=(S.user?.name||'').toLowerCase();
     let filtered=assignments;
     if(filter==='open')filtered=assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1]));
@@ -755,6 +812,7 @@ function renderCurrList(filter) {
     }
     listEl.innerHTML=filtered.map(r=>currCardHTML(r,lower)).join('');
     attachCurrEvents();
+    startCountdownTimers();
 }
 
 function currCardHTML(r,lowerName) {
@@ -804,7 +862,7 @@ function currCardHTML(r,lowerName) {
     const lockBadge=done
         ?'<span class="curr-done-badge">✅ Completed</span>'
         :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
-        :`<span class="curr-countdown">${esc(countdown)}</span>`;
+        :`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`;
 
     const signupCloseHTML=!done&&!locked&&startDate
         ?`<div class="curr-signup-close">🔔 Signups close on <strong>${fmtDateTimeStr(startDate)}</strong></div>`:'';
@@ -823,7 +881,7 @@ function currCardHTML(r,lowerName) {
         </div>
         <div class="slot-bar-wrap mt-12">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-                <span class="muted text-small">${filled} / ${maxVols||'?'} volunteers registered</span>
+                <span class="muted text-small">${filled} / ${maxVols||'?'} in progress</span>
                 ${isFull&&!isRegistered?'<span class="curr-full-badge">FULL</span>':''}
             </div>
             <div class="slot-bar-track"><div class="slot-bar-fill" style="width:${pct}%"></div></div>
@@ -1439,7 +1497,7 @@ function showEditAssignment(r) {
 
 /* ─── GIVE HOURS (DOC) ──────────────────────────────────────── */
 function dirGiveHoursHTML() {
-    const assignments=S.data.curriculum||[];
+    const assignments=[...(S.data.curriculum||[])].reverse(); // newest first
     if(!assignments.length)return`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No assignments yet</div><p class="muted text-small">Post assignments first, then give hours after volunteers complete the work.</p></div>`;
     const allVols=S.data.allVolunteers||[];
     const discordMap={};
