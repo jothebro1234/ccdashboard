@@ -80,17 +80,40 @@
 
 <!-- Loading overlay -->
 <div class="portal-loading" id="portal-loading">
+    <!-- Layers -->
     <div class="pl-bg"></div>
-    <div class="pl-overlay"></div>
+    <div class="pl-vignette"></div>
+    <div class="pl-scan" aria-hidden="true"></div>
+    <!-- Floating particles -->
+    <div class="pl-particles" aria-hidden="true">
+        <div class="pl-p" style="--x:7%;--dur:4.2s;--d:.2s;--s:2px"></div>
+        <div class="pl-p" style="--x:19%;--dur:5.5s;--d:.8s;--s:3px"></div>
+        <div class="pl-p" style="--x:33%;--dur:4.8s;--d:1.4s;--s:2px"></div>
+        <div class="pl-p" style="--x:50%;--dur:3.9s;--d:.3s;--s:4px"></div>
+        <div class="pl-p" style="--x:64%;--dur:5.2s;--d:1.0s;--s:2px"></div>
+        <div class="pl-p" style="--x:78%;--dur:4.4s;--d:0s;--s:3px"></div>
+        <div class="pl-p" style="--x:90%;--dur:5.0s;--d:1.6s;--s:2px"></div>
+        <div class="pl-p" style="--x:42%;--dur:6.0s;--d:.6s;--s:2px"></div>
+    </div>
+    <!-- Main content -->
     <div class="pl-inner">
-        <img src="../cclogo.png" class="pl-logo" alt="Curio Crate" onerror="this.style.display='none'">
-        <div class="pl-org">CURIO CRATE</div>
-        <div class="pl-tagline">VOLUNTEER PORTAL</div>
-        <div class="pl-rings">
-            <div class="pl-ring-outer"></div>
-            <div class="pl-ring-inner"></div>
+        <!-- Logo + orbital rings -->
+        <div class="pl-logo-wrap">
+            <div class="pl-orbit"></div>
+            <div class="pl-orbit pl-orbit-2"></div>
+            <img src="../cclogo.png" class="pl-logo" alt="Curio Crate" onerror="this.style.display='none'">
         </div>
-        <div class="pl-txt">Loading…</div>
+        <!-- Letter-by-letter title -->
+        <div class="pl-org" aria-label="CURIO CRATE">
+            <span style="--i:0">C</span><span style="--i:1">U</span><span style="--i:2">R</span><span style="--i:3">I</span><span style="--i:4">O</span><span class="pl-sp">&nbsp;</span><span style="--i:5">C</span><span style="--i:6">R</span><span style="--i:7">A</span><span style="--i:8">T</span><span style="--i:9">E</span>
+        </div>
+        <div class="pl-tagline">VOLUNTEER PORTAL</div>
+        <div class="pl-sep"></div>
+        <div class="pl-bar-wrap">
+            <div class="pl-bar-glow"></div>
+            <div class="pl-bar-fill"></div>
+        </div>
+        <div class="pl-status">INITIALIZING</div>
     </div>
 </div>
 

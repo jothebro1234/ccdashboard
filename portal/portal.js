@@ -1733,8 +1733,24 @@ function toast(msg,type='success') {
     wrap.appendChild(el);
     setTimeout(()=>{el.classList.add('out');setTimeout(()=>el.remove(),300);},3500);
 }
-function showLoading() { const el=document.getElementById('portal-loading');if(el)el.classList.remove('hidden'); }
-function hideLoading() { const el=document.getElementById('portal-loading');if(el)el.classList.add('hidden'); }
+let _loadStart=0, _initialHidden=false;
+function showLoading() {
+    const el=document.getElementById('portal-loading');
+    if(el)el.classList.remove('hidden');
+    if(!_initialHidden) _loadStart=Date.now();
+}
+function hideLoading() {
+    const el=document.getElementById('portal-loading');
+    if(!el)return;
+    if(!_initialHidden){
+        // First login: guarantee at least 4.5s so all animations fully play
+        const elapsed=Date.now()-_loadStart;
+        const delay=Math.max(0,4500-elapsed);
+        setTimeout(()=>{el.classList.add('hidden');_initialHidden=true;},delay);
+    } else {
+        el.classList.add('hidden');
+    }
+}
 
 /* ═══════════════════════════════════════════════════════════════
    MOBILE SIDEBAR
