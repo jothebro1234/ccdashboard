@@ -1,15 +1,71 @@
 const CONFIG = {
+    // ── Leaderboard (unchanged) ───────────────────────────────────
     SHEET_ID:                '1VOGj6vehl2Fzko6YBEynopzqLnlj3vWy1CkLi0P6l5Y',
     SHEET_NAME:              'Volunteers',
     EVENTS_SHEET_NAME:       'Events',
-    CURRICULUM_SHEET_NAME:   'Curriculum',      // columns: Curriculum Name | Date | Contributors (comma-sep)
-    ANNOUNCEMENTS_SHEET_NAME:'Announcements',   // single cell A1 = announcement text
-    EXCEPTIONS_SHEET_NAME:   'Exceptions',      // column A: names to hide from leaderboard
-    ROSTER_SHEET_NAME:       'Roster',          // col A=Curriculum names, C=Kitmaking names, E=In-Person names
+    CURRICULUM_SHEET_NAME:   'Curriculum',
+    ANNOUNCEMENTS_SHEET_NAME:'Announcements',
+    EXCEPTIONS_SHEET_NAME:   'Exceptions',
+    ROSTER_SHEET_NAME:       'Roster',
     ORG_NAME:                'Curio Crate',
     REFRESH_INTERVAL:        60,
     SHOW_DISCORD:            true,
-    JOIN_URL:  'https://docs.google.com/forms/d/e/1FAIpQLSd6iFIbmLERmHtN7eigAIqTQX6aqdnssGX2uxGCXcvpIRmWsA/viewform?usp=sharing&ouid=106234786547754035782',
+    JOIN_URL:   'https://docs.google.com/forms/d/e/1FAIpQLSd6iFIbmLERmHtN7eigAIqTQX6aqdnssGX2uxGCXcvpIRmWsA/viewform?usp=sharing&ouid=106234786547754035782',
     INSTAGRAM_URL: 'https://www.instagram.com/ckf.curiocrate/',
     ADMIN_CODE: 'ccadmin2025',
+
+    // ── Portal: Director Access Codes ────────────────────────────
+    // Each role has its own code. Change these before sharing with directors.
+    DIRECTOR_CODES: {
+        doc:       'ccdoc2025',
+        doo:       'ccdoo2025',
+        dop:       'ccdop2025',
+        president: 'ccadmin2025',
+    },
+
+    // ── Portal: New Sheet Names ───────────────────────────────────
+    // Volunteers sheet extended columns (E–L, existing A–D and J unchanged):
+    //   E=Token  F=Track  G=Tier  H=Lead  I=CyclesCompleted
+    //   J=TeamBadges(existing)  K=OnTimeRate  L=LastContact
+    TASKS_SHEET:       'Tasks',        // Task assignments
+    SESSIONS_SHEET:    'Sessions',     // In-person sessions (Operations)
+    DEBRIEFS_SHEET:    'SessionDebriefs',
+    WINS_SHEET:        'WinsBoard',    // Recognition feed
+    NOTIFS_SHEET:      'Notifications',
+    NOMINATIONS_SHEET: 'Nominations',  // Tier-up nominations
+    CYCLES_SHEET:      'Cycles',       // Two-week cycle registry
+    CONTENT_CAL_SHEET: 'ContentCalendar', // Publicity content calendar
+
+    // ── Portal: Write Endpoint ────────────────────────────────────
+    // Deploy appsscript.gs as a Web App (Execute as: Me, Anyone can access)
+    // then paste the /exec URL here. Leave blank for read-only mode.
+    APPS_SCRIPT_URL: '',
+
+    // ── Google OAuth ──────────────────────────────────────────────
+    GOOGLE_CLIENT_ID: '1009212045762-e6kcfjh3iva58bclegmqb1eq3oea6iso.apps.googleusercontent.com',
+
+    // ── Org Structure ─────────────────────────────────────────────
+    PRESIDENT_NAME: 'Jumbo Jo',
+    DIRECTORS: {
+        doc:       { name: '', title: 'Director of Curriculum', track: 'Curriculum'    },
+        doo:       { name: '', title: 'Director of Operations',  track: 'Operations'   },
+        dop:       { name: '', title: 'Director of Media/Design',track: 'Media/Design' },
+        president: { name: '', title: 'President',               track: 'All'          },
+    },
+
+    TRACKS: {
+        'Curriculum':   { color: '#14b8a6', glow: 'rgba(20,184,166,.25)',  icon: '📚', role: 'doc', cls: 'teal'         },
+        'Operations':   { color: '#8b5cf6', glow: 'rgba(139,92,246,.25)',  icon: '🎓', role: 'doo', cls: 'violet'       },
+        'Media/Design': { color: '#f87171', glow: 'rgba(248,113,113,.25)', icon: '🎨', role: 'dop', cls: 'media-design' },
+    },
+
+    TIERS: {
+        1:    { name: 'Explorer',  color: '#64748b', icon: '🌱', cycles: 0   },
+        2:    { name: 'Builder',   color: '#0ea5e9', icon: '🔨', cycles: 2   },
+        3:    { name: 'Lead',      color: '#7c3aed', icon: '⭐', cycles: 5   },
+        4:    { name: 'Architect', color: '#d97706', icon: '🏛️', cycles: 10  },
+        Exec: { name: 'Executive', color: '#fbbf24', icon: '👑', cycles: 999 },
+    },
+
+    CYCLE_DAYS: 14,
 };
