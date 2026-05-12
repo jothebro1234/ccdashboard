@@ -39,7 +39,7 @@ const CONFIG = {
     // ── Portal: Write Endpoint ────────────────────────────────────
     // Deploy appsscript.gs as a Web App (Execute as: Me, Anyone can access)
     // then paste the /exec URL here. Leave blank for read-only mode.
-    APPS_SCRIPT_URL: '',
+    APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxMLYVSDKm6R3P-jCxEEySC6qU6ShoAYJxc-Snz15ZpjnSmEhj-2mIg5aqmTzIOv4Tk/exec',
 
     // ── Google OAuth ──────────────────────────────────────────────
     GOOGLE_CLIENT_ID: '1009212045762-e6kcfjh3iva58bclegmqb1eq3oea6iso.apps.googleusercontent.com',
@@ -47,10 +47,10 @@ const CONFIG = {
     // ── Org Structure ─────────────────────────────────────────────
     PRESIDENT_NAME: 'Jumbo Jo',
     DIRECTORS: {
-        doc:       { name: '', title: 'Director of Curriculum', track: 'Curriculum'    },
-        doo:       { name: '', title: 'Director of Operations',  track: 'Operations'   },
-        dop:       { name: '', title: 'Director of Media/Design',track: 'Media/Design' },
-        president: { name: '', title: 'President',               track: 'All'          },
+        doc:       { name: 'Sourish Mehta, Chloe Koo, Megan Yao', title: 'Director of Curriculum', track: 'Curriculum'    },
+        doo:       { name: 'Jamie Song, Pragya Jain', title: 'Director of Operations',  track: 'Operations'   },
+        dop:       { name: 'Daniel Kim', title: 'Director of Media/Design',track: 'Media/Design' },
+        president: { name: 'Daniel Son', title: 'President',               track: 'All'          },
     },
 
     TRACKS: {
