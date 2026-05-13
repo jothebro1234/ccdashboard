@@ -2462,8 +2462,8 @@ function dirPostEventHTML() {
                     </div>
                     <div class="form-group">
                         <label class="form-label">Chapter Label ${isChapRep?'(auto-filled)':''}</label>
-                        <input class="form-input" id="pe-chapter" value="${esc(chapSchool)}" placeholder="School name (leave blank for all chapters)">
-                        <div class="form-hint">Limits visibility to this chapter's volunteers. Leave blank for org-wide event.</div>
+                        ${buildChapComboHTML('pe-chapter',chapSchool)}
+                        <div class="form-hint">Leave blank for org-wide. Only chapters in the Chapters sheet appear.</div>
                     </div>
                     <div class="form-err" id="pe-err"></div>
                     <button class="btn btn-primary" id="pe-submit-btn">📅 Post Event</button>
@@ -2477,6 +2477,7 @@ function dirPostEventHTML() {
 }
 
 function attachPostEventEvents() {
+    initChapCombo('pe-chapter', S.chapData?.school||'', S.role==='chapter_rep');
     document.getElementById('pe-submit-btn')?.addEventListener('click',async()=>{
         const name=document.getElementById('pe-name').value.trim();
         const eventDate=document.getElementById('pe-date').value;
@@ -2578,7 +2579,7 @@ function showEditEvent(r) {
                 </div>
                 <div class="form-group">
                     <label class="form-label">Chapter Label</label>
-                    <input class="form-input" id="ee-chapter" value="${esc(r[10]||'')}" placeholder="School name">
+                    ${buildChapComboHTML('ee-chapter',r[10]||'')}
                 </div>
                 <div class="form-group">
                     <label class="form-label">Instructions</label>
@@ -2589,6 +2590,7 @@ function showEditEvent(r) {
             </div>
         </div>`;
     const close=openModal(html);
+    initChapCombo('ee-chapter', r[10]||'', false);
     document.getElementById('ee-submit-btn').addEventListener('click',async()=>{
         const eventDate=document.getElementById('ee-date').value;
         const signupCloseDate=document.getElementById('ee-close').value;
@@ -2802,6 +2804,76 @@ async function switchToDirectorView() {
         renderUserInfo();
         navigate('dashboard');
     } catch(e){hideLoading();toast(e.message,'error');}
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHAPTER COMBO (searchable dropdown)
+   ═══════════════════════════════════════════════════════════════ */
+function buildChapComboHTML(prefix, currentVal) {
+    const label=currentVal||'None (org-wide)';
+    return `<div class="chap-combo" id="${prefix}-wrap">
+        <div class="form-input chap-combo-trigger" id="${prefix}-trigger" tabindex="0">
+            <span id="${prefix}-display">${esc(label)}</span>
+            <span class="chap-combo-caret">▾</span>
+        </div>
+        <div class="chap-combo-panel" id="${prefix}-panel" style="display:none">
+            <input class="chap-combo-search" id="${prefix}-search" placeholder="Search chapters…" autocomplete="off">
+            <div class="chap-combo-opts" id="${prefix}-opts"></div>
+        </div>
+        <input type="hidden" id="${prefix}" value="${esc(currentVal||'')}">
+    </div>`;
+}
+
+function initChapCombo(prefix, currentVal, isDisabled) {
+    const trigger=document.getElementById(`${prefix}-trigger`);
+    const panel  =document.getElementById(`${prefix}-panel`);
+    const display=document.getElementById(`${prefix}-display`);
+    const search =document.getElementById(`${prefix}-search`);
+    const optsEl =document.getElementById(`${prefix}-opts`);
+    const hidden =document.getElementById(prefix);
+    if(!trigger||!panel||!optsEl||!hidden)return;
+    if(isDisabled){trigger.style.opacity='0.65';trigger.style.cursor='default';trigger.style.pointerEvents='none';return;}
+
+    const chapters=S.data.chapters||[];
+    const schools=[...new Set(chapters.map(r=>(r[2]||'').trim()).filter(Boolean))].sort();
+    const options=[{val:'',label:'None (org-wide)'},...schools.map(s=>({val:s,label:s}))];
+
+    function renderOpts(q){
+        const lower=(q||'').toLowerCase();
+        const filtered=lower?options.filter(o=>o.label.toLowerCase().includes(lower)):options;
+        optsEl.innerHTML=filtered.length
+            ?filtered.map(o=>`<div class="chap-combo-opt${o.val===hidden.value?' selected':''}" data-val="${esc(o.val)}">${esc(o.label)}</div>`).join('')
+            :'<div class="chap-combo-opt chap-combo-none">No chapters found</div>';
+        optsEl.querySelectorAll('.chap-combo-opt:not(.chap-combo-none)').forEach(opt=>{
+            opt.addEventListener('click',()=>{
+                hidden.value=opt.dataset.val;
+                display.textContent=opt.dataset.val||'None (org-wide)';
+                closePanel();
+            });
+        });
+    }
+
+    let _outside=null;
+    function openPanel(){
+        panel.style.display='block';
+        search.value='';
+        renderOpts('');
+        setTimeout(()=>search.focus(),10);
+        trigger.classList.add('open');
+        if(_outside)document.removeEventListener('click',_outside);
+        _outside=e=>{if(!document.getElementById(`${prefix}-wrap`)?.contains(e.target))closePanel();};
+        setTimeout(()=>document.addEventListener('click',_outside),0);
+    }
+    function closePanel(){
+        panel.style.display='none';
+        trigger.classList.remove('open');
+        if(_outside){document.removeEventListener('click',_outside);_outside=null;}
+    }
+
+    trigger.addEventListener('click',e=>{e.stopPropagation();panel.style.display==='none'?openPanel():closePanel();});
+    trigger.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openPanel();}if(e.key==='Escape')closePanel();});
+    search.addEventListener('input',()=>renderOpts(search.value));
+    search.addEventListener('click',e=>e.stopPropagation());
 }
 
 /* ═══════════════════════════════════════════════════════════════
