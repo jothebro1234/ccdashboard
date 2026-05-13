@@ -3,13 +3,31 @@
    ═══════════════════════════════════════════════════════════════ */
 const S = {
     user:   null,   // { name, email, track, tier, discord, school, avatar, lead, onTimeRate, lastContact }
-    role:   null,   // 'volunteer' | 'doc' | 'doo' | 'dop' | 'president'
+    role:   null,   // 'volunteer' | 'doc' | 'doo' | 'dop' | 'president' | 'chapter_rep' | etc.
     view:   null,
     subTab: null,
-    data:   {},     // { curriculum, events, allVolunteers, volunteers, lbData, lbReady, myStats, myRegistrations }
+    data:   {},     // { curriculum, events, allVolunteers, volunteers, lbData, lbReady, myStats, myRegistrations, myEventRegistrations, upcomingEvents, directors, chapters }
     lbCat:  'hours',
     lbPrevRanks: {},
+    dirRole: null,  // the director role when in volunteer view
+    volUser: null,  // volunteer record if a director is also a volunteer
+    _dirUser: null, // saved director user when switching views
+    chapData: null, // { name, school } for chapter_rep
 };
+
+/* ── Role helpers ─────────────────────────────────────────── */
+const EXEC_ROLES=['president','cef','vp','sec','tres','cpo'];
+function isExecRole(r){return EXEC_ROLES.includes(r);}
+function canPostAssignment(r){return['doc','chapter_rep',...EXEC_ROLES].includes(r);}
+function canPostEvent(r){return['doo','chapter_rep',...EXEC_ROLES].includes(r);}
+function canGiveHoursAssign(r){return['doc','chapter_rep',...EXEC_ROLES].includes(r);}
+function canGiveHoursEvent(r){return['doo','chapter_rep',...EXEC_ROLES].includes(r);}
+function canManageTiersRole(r){return['hr',...EXEC_ROLES].includes(r);}
+function canRecordAdHoc(r){return['doo','chapter_rep',...EXEC_ROLES].includes(r);}
+function roleLabel(r){const m={doc:'DOC',doo:'DOO',dop:'DOP',president:'Pres',cef:'CEF',vp:'VP',sec:'Sec',tres:'Tres',cpo:'CPO',hr:'HR',mr:'MR',chapter_rep:'ChapRep',trial:'Trial'};return m[r]||String(r||'').toUpperCase();}
+function getDirTrack(r){if(isExecRole(r)||['hr','mr','trial'].includes(r))return'All';return(CONFIG.DIRECTORS[r]||{}).track||'All';}
+function isUpcomingEv(r){return!!(r&&r[6]);}
+function getDirRoleForName(name){const n=(name||'').toLowerCase();const d=(S.data.directors||[]).find(r=>(r[1]||'').trim().toLowerCase()===n);if(d)return(d[2]||'').trim().toLowerCase();if((S.data.chapters||[]).some(r=>(r[1]||'').trim().toLowerCase()===n))return'chapter_rep';return null;}
 
 /* ═══════════════════════════════════════════════════════════════
    UTILS
@@ -164,20 +182,27 @@ function startPolling() {
         try {
             if(S.role==='volunteer'&&S.user?.name){
                 await loadVolunteerData(S.user.name);
-                if(S.view==='curriculum'){
-                    const tab=document.querySelector('#curr-tabs .panel-tab.active')?.dataset.tab||'open';
-                    renderCurrList(tab);
+                if(S.view==='activities'||S.view==='curriculum'){
+                    const tab=document.querySelector('#act-tabs .panel-tab.active')?.dataset.tab||'available';
+                    renderActivitiesList(tab);
                     startCountdownTimers();
                 } else if(S.view==='dashboard'){
                     viewDashboard();
                 }
             } else if(S.role&&S.role!=='volunteer'){
-                const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+                const track=getDirTrack(S.role);
                 await loadDirectorData(track);
+                // Also refresh volunteer data for chapter_rep or directors in vol view
+                if(S.role==='chapter_rep'&&S.user?.name)await loadVolunteerData(S.user.name).catch(()=>{});
                 if(S.view==='director'){
                     const tab=document.querySelector('#dir-tabs .panel-tab.active')?.dataset.tab||'roster';
-                    // Only re-render read-only tabs; form tabs would reset user input
                     if(tab==='roster')renderDirPanel(tab);
+                } else if(S.view==='activities'||S.view==='curriculum'){
+                    const tab=document.querySelector('#act-tabs .panel-tab.active')?.dataset.tab||'available';
+                    renderActivitiesList(tab);
+                    startCountdownTimers();
+                } else if(S.view==='dashboard'){
+                    viewDashboard();
                 }
             }
         } catch(_){}
@@ -226,15 +251,21 @@ async function postAction(action,payload) {
 }
 
 async function loadVolunteerData(name) {
-    const [currRows,evRows,volRows]=await Promise.all([
+    const [currRows,evRows,volRows,chapRows,dirRows]=await Promise.all([
         fetchSheet(CONFIG.CURRICULUM_SHEET_NAME).catch(()=>[]),
         fetchSheet(CONFIG.EVENTS_SHEET_NAME).catch(()=>[]),
         fetchSheet(CONFIG.SHEET_NAME).catch(()=>[]),
+        fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
+        fetchSheet(CONFIG.DIRECTORS_SHEET||'Directors').catch(()=>[]),
     ]);
     S.data.curriculum=currRows.slice(1).filter(r=>r[0]);
-    S.data.events=evRows.slice(1).filter(r=>r[0]);
+    const allEvRows=evRows.slice(1).filter(r=>r[0]);
+    S.data.events=allEvRows;
+    S.data.upcomingEvents=allEvRows.filter(isUpcomingEv);
+    S.data.chapters=chapRows.slice(1).filter(r=>r[0]);
+    S.data.directors=dirRows.slice(1).filter(r=>r[0]);
     S.data.allVolunteers=volRows.slice(1).filter(r=>r[0]).map(r=>({
-        name:(r[0]||'').trim(),discord:(r[1]||'').trim(),
+        name:(r[0]||'').trim(),discord:(r[1]||'').trim(),school:(r[2]||'').trim(),
     }));
     const lower=name.toLowerCase();
     let totalHours=0,curricCount=0,eventsCount=0;
@@ -252,16 +283,26 @@ async function loadVolunteerData(name) {
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
         return reg.includes(lower)&&!cred.includes(lower);
     });
+    // upcoming event registrations (registered but not yet credited)
+    S.data.myEventRegistrations=S.data.upcomingEvents.filter(r=>{
+        const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
+        const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
+        return reg.includes(lower)&&!cred.includes(lower);
+    });
 }
 
 async function loadDirectorData(track) {
-    const [volRows,currRows,evRows]=await Promise.all([
+    const [volRows,currRows,evRows,chapRows,dirRows]=await Promise.all([
         fetchSheet(CONFIG.SHEET_NAME),
         fetchSheet(CONFIG.CURRICULUM_SHEET_NAME).catch(()=>[]),
         fetchSheet(CONFIG.EVENTS_SHEET_NAME).catch(()=>[]),
+        fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
+        fetchSheet(CONFIG.DIRECTORS_SHEET||'Directors').catch(()=>[]),
     ]);
     const currData=currRows.slice(1).filter(r=>r[0]);
     const evData=evRows.slice(1).filter(r=>r[0]);
+    S.data.chapters=chapRows.slice(1).filter(r=>r[0]);
+    S.data.directors=dirRows.slice(1).filter(r=>r[0]);
     const all=volRows.slice(1).map(r=>({
         name:(r[0]||'').trim(),discord:(r[1]||'').trim(),school:(r[2]||'').trim(),
         avatar:(r[3]||'').trim(),email:(r[4]||'').trim(),track:deriveTrack(r[5],r[9]),
@@ -287,6 +328,7 @@ async function loadDirectorData(track) {
     S.data.volunteers=track==='All'?all:all.filter(v=>v.track===track);
     S.data.curriculum=currData;
     S.data.events=evData;
+    S.data.upcomingEvents=evData.filter(isUpcomingEv);
 }
 
 async function loadLbData() {
@@ -365,21 +407,66 @@ async function handleGoogleSignIn(credentialResponse) {
         const payload=JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
         const email=(payload.email||'').trim().toLowerCase();
         if(!email)throw new Error('No email returned from Google sign-in.');
-        const rows=await fetchSheet(CONFIG.SHEET_NAME);
+
+        // Fetch all three sheets in parallel
+        const [volRows,dirRows,chapRows]=await Promise.all([
+            fetchSheet(CONFIG.SHEET_NAME).catch(()=>[]),
+            fetchSheet(CONFIG.DIRECTORS_SHEET||'Directors').catch(()=>[]),
+            fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
+        ]);
         const emailCol=CONFIG.EMAIL_COL??4;
-        const row=rows.slice(1).find(r=>(r[emailCol]||'').trim().toLowerCase()===email);
-        if(!row){hideLoading();showNotRegistered(email,payload.picture);return;}
-        S.user={
-            name:(row[0]||'').trim(),email,
-            discord:(row[1]||'').trim(),school:(row[2]||'').trim(),
-            avatar:payload.picture||(row[3]||'').trim(),
-            track:deriveTrack(row[5],row[9]),
-            tier:(row[6]||'').trim()||'1',
-            lead:(row[7]||'').trim(),
-            onTimeRate:parseFloat(row[10])||null,
-            lastContact:(row[11]||'').trim(),
-        };
+        const volRow=volRows.slice(1).find(r=>(r[emailCol]||'').trim().toLowerCase()===email);
+        const dirRow=dirRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
+        const chapRow=chapRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
+
+        // Build volunteer user object if they're in the volunteer sheet
+        let volUser=null;
+        if(volRow){
+            volUser={
+                name:(volRow[0]||'').trim(),email,
+                discord:(volRow[1]||'').trim(),school:(volRow[2]||'').trim(),
+                avatar:payload.picture||(volRow[3]||'').trim(),
+                track:deriveTrack(volRow[5],volRow[9]),
+                tier:(volRow[6]||'').trim()||'1',
+                lead:(volRow[7]||'').trim(),
+                onTimeRate:parseFloat(volRow[10])||null,
+                lastContact:(volRow[11]||'').trim(),
+            };
+        }
+
+        // Priority 1: Directors sheet
+        if(dirRow){
+            const role=((dirRow[2]||'').trim().toLowerCase())||'doc';
+            const dirName=(dirRow[1]||'').trim();
+            S.role=role;
+            S.dirRole=role;
+            S.user={name:dirName,email,role,track:getDirTrack(role),avatar:payload.picture||''};
+            S._dirUser=S.user;
+            S.volUser=volUser;
+            await launchDirectorPortal(role);
+            return;
+        }
+
+        // Priority 2: Chapters sheet
+        if(chapRow){
+            const chapName=(chapRow[1]||'').trim();
+            const chapSchool=(chapRow[2]||'').trim();
+            S.role='chapter_rep';
+            S.dirRole='chapter_rep';
+            S.chapData={name:chapName,school:chapSchool};
+            S.user={name:chapName,email,role:'chapter_rep',track:'All',avatar:payload.picture||''};
+            S._dirUser=S.user;
+            S.volUser=volUser;
+            await launchDirectorPortal('chapter_rep');
+            return;
+        }
+
+        // Priority 3: Volunteers sheet
+        if(!volUser){hideLoading();showNotRegistered(email,payload.picture);return;}
+        S.user=volUser;
         S.role='volunteer';
+        S.dirRole=null;
+        S.volUser=null;
         await loadVolunteerData(S.user.name);
         launchPortal();
     } catch(e){
@@ -398,18 +485,42 @@ function showLanding() {
                 New volunteer? <a href="${esc(CONFIG.JOIN_URL)}" target="_blank" class="auth-link">Fill out the sign-up form first →</a>
             </p>
             <hr style="border:none;border-top:1px solid rgba(255,255,255,.08);width:100%;margin-top:4px">
-            <p class="auth-desc" style="font-size:11px;margin-bottom:-4px">Director or President? Sign in here:</p>
-            <div class="auth-role-row">
-                <button class="auth-role-btn" data-role="doc">📚 DOC</button>
-                <button class="auth-role-btn" data-role="doo">🎓 DOO</button>
-                <button class="auth-role-btn" data-role="dop">📣 DOP</button>
-                <button class="auth-role-btn" data-role="president">👑 Pres</button>
-            </div>
+            <p class="auth-desc" style="font-size:11px;text-align:center">
+                <button class="auth-link-btn" id="staff-login-link">Staff login →</button>
+            </p>
         </div>`;
     initGoogleSignIn();
+    document.getElementById('staff-login-link')?.addEventListener('click',showCodeLoginMenu);
+}
+
+function showCodeLoginMenu() {
+    const allRoles=[
+        {role:'president',icon:'👑',label:'President'},
+        {role:'cef',icon:'🌟',label:'Chief Executive Fellow'},
+        {role:'vp',icon:'🏅',label:'Vice President'},
+        {role:'sec',icon:'📝',label:'Secretary'},
+        {role:'tres',icon:'💰',label:'Treasurer'},
+        {role:'cpo',icon:'🤝',label:'Chief People Officer'},
+        {role:'doc',icon:'📚',label:'Director of Curriculum'},
+        {role:'doo',icon:'🎓',label:'Director of Operations'},
+        {role:'dop',icon:'📣',label:'Director of Media/Design'},
+        {role:'hr',icon:'👥',label:'Human Resources'},
+        {role:'mr',icon:'📋',label:'Member Relations'},
+        {role:'trial',icon:'🔍',label:'Trial (Read-only)'},
+    ];
+    document.getElementById('auth-title').textContent='Staff Login';
+    document.getElementById('auth-body').innerHTML=`
+        <div class="auth-body">
+            <p class="auth-desc" style="margin-bottom:4px">Select your role to enter your access code.</p>
+            <div class="auth-role-grid">
+                ${allRoles.map(r=>`<button class="auth-role-btn" data-role="${esc(r.role)}">${r.icon} ${r.label}</button>`).join('')}
+            </div>
+            <p class="auth-back" id="auth-back">← Back</p>
+        </div>`;
     document.querySelectorAll('.auth-role-btn').forEach(btn=>{
         btn.onclick=()=>showRoleAuth(btn.dataset.role);
     });
+    document.getElementById('auth-back').onclick=showLanding;
 }
 
 function showNotRegistered(email,picture) {
@@ -425,8 +536,16 @@ function showNotRegistered(email,picture) {
 }
 
 function showRoleAuth(role) {
-    const labels={doc:'Director of Curriculum',doo:'Director of Operations',dop:'Director of Publicity',president:'President'};
-    const icons={doc:'📚',doo:'🎓',dop:'📣',president:'👑'};
+    const labels={
+        doc:'Director of Curriculum',doo:'Director of Operations',dop:'Director of Media/Design',
+        president:'President',cef:'Chief Executive Fellow',vp:'Vice President',
+        sec:'Secretary',tres:'Treasurer',cpo:'Chief People Officer',
+        hr:'Human Resources',mr:'Member Relations',trial:'Trial Director',
+    };
+    const icons={
+        doc:'📚',doo:'🎓',dop:'📣',president:'👑',cef:'🌟',vp:'🏅',
+        sec:'📝',tres:'💰',cpo:'🤝',hr:'👥',mr:'📋',trial:'🔍',
+    };
     document.getElementById('auth-title').textContent=`${icons[role]||''} ${labels[role]||role}`;
     document.getElementById('auth-body').innerHTML=`
         <div class="auth-body">
@@ -441,7 +560,11 @@ function showRoleAuth(role) {
         const code=input.value.trim();
         if(code===CONFIG.DIRECTOR_CODES[role]){
             S.role=role;
-            S.user={name:(CONFIG.DIRECTORS[role]||{}).name||labels[role],role,track:(CONFIG.DIRECTORS[role]||{}).track||''};
+            S.dirRole=role;
+            const dirCfg=CONFIG.DIRECTORS[role]||{};
+            S.user={name:dirCfg.name||labels[role]||role,role,track:dirCfg.track||getDirTrack(role)};
+            S._dirUser=S.user;
+            S.volUser=null;
             launchDirectorPortal(role);
         } else {
             const err=document.getElementById('auth-err-msg');
@@ -452,7 +575,7 @@ function showRoleAuth(role) {
     };
     document.getElementById('dir-auth-btn').onclick=tryCode;
     input.addEventListener('keydown',e=>{if(e.key==='Enter')tryCode();});
-    document.getElementById('auth-back').onclick=showLanding;
+    document.getElementById('auth-back').onclick=showCodeLoginMenu;
     input.focus();
 }
 
@@ -481,8 +604,12 @@ function launchPortal() {
 async function launchDirectorPortal(role) {
     showLoading();
     try {
-        const track=role==='president'?'All':(CONFIG.DIRECTORS[role]||{}).track||'';
-        await loadDirectorData(track);
+        const track=getDirTrack(role);
+        const loads=[loadDirectorData(track)];
+        // For chapter_rep or directors who are also volunteers, load personal vol data too
+        const volName=S.volUser?.name||(role==='chapter_rep'?S.chapData?.name:null);
+        if(volName)loads.push(loadVolunteerData(volName));
+        await Promise.all(loads);
         document.getElementById('auth-gate').style.display='none';
         document.getElementById('portal-shell').style.display='flex';
         hideLoading();
@@ -527,20 +654,37 @@ function showCinematic() {
    ═══════════════════════════════════════════════════════════════ */
 function renderSidebar() {
     const nav=document.getElementById('sb-nav');
-    const isDir=S.role!=='volunteer';
-    const volItems=[
-        {id:'dashboard',  icon:'🏠',label:'Dashboard'},
-        {id:'curriculum', icon:'📚',label:'Assignments'}, // sub-tab defaults to "Available"
-        {id:'progress',   icon:'📈',label:'My Progress'},
-        {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
-    ];
-    const dirItems=[
-        {id:'dashboard',  icon:'🏠',label:'Overview'},
-        {id:'director',   icon:'⚙️',label:'Director Panel'},
-        {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
-    ];
-    const items=isDir?dirItems:volItems;
-    nav.innerHTML=items.map(it=>`<button class="sb-item${S.view===it.id?' active':''}" data-view="${it.id}">
+    const role=S.role;
+    let items=[];
+    if(role==='volunteer'){
+        // Show "My Chapter" only if their school has a chapter rep
+        const userSchool=(S.user?.school||'').toLowerCase().trim();
+        const hasChapter=userSchool&&(S.data.chapters||[]).some(r=>(r[2]||'').trim().toLowerCase()===userSchool);
+        items=[
+            {id:'dashboard',  icon:'🏠',label:'Dashboard'},
+            {id:'activities', icon:'📚',label:'Activities'},
+            ...(hasChapter?[{id:'chapter',icon:'🏫',label:'My Chapter'}]:[]),
+            {id:'progress',   icon:'📈',label:'My Progress'},
+            {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
+        ];
+    } else if(role==='chapter_rep'){
+        items=[
+            {id:'dashboard',  icon:'🏠',label:'Dashboard'},
+            {id:'activities', icon:'📚',label:'Activities'},
+            {id:'chapter',    icon:'🏫',label:'My Chapter'},
+            {id:'director',   icon:'⚙️',label:'Chapter Panel'},
+            {id:'progress',   icon:'📈',label:'My Progress'},
+            {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
+        ];
+    } else {
+        items=[
+            {id:'dashboard',  icon:'🏠',label:'Overview'},
+            {id:'director',   icon:'⚙️',label:'Director Panel'},
+            {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
+        ];
+    }
+    const activeView=S.view||'dashboard';
+    nav.innerHTML=items.map(it=>`<button class="sb-item${activeView===it.id?' active':''}" data-view="${it.id}">
         <span class="sb-icon">${it.icon}</span>
         <span>${it.label}</span>
     </button>`).join('');
@@ -595,10 +739,12 @@ function navigate(view,sub) {
     root.innerHTML='';
     switch(view){
         case 'dashboard':   viewDashboard();break;
-        case 'curriculum':  viewCurriculum();break;
+        case 'activities':  viewActivities();break;
+        case 'curriculum':  viewActivities();break; // alias for backward compat
         case 'progress':    viewMyProgress();break;
         case 'leaderboard': viewLeaderboard();break;
         case 'director':    viewDirectorPanel(sub||'roster');break;
+        case 'chapter':     viewMyChapter();break;
         default:viewDashboard();
     }
     window.scrollTo(0,0);
@@ -623,21 +769,44 @@ function tierBadge(tier) {
    VIEW: DASHBOARD
    ═══════════════════════════════════════════════════════════════ */
 function viewDashboard() {
-    if(S.role!=='volunteer'){viewDirectorOverview();return;}
+    if(S.role!=='volunteer'&&S.role!=='chapter_rep'){viewDirectorOverview();return;}
     const root=document.getElementById('view-root');
     const u=S.user||{};
     const track=u.track?(CONFIG.TRACKS[u.track]||{}):{};
     const stats=S.data.myStats||{totalHours:0,curricCount:0,eventsCount:0};
-    const regs=S.data.myRegistrations||[];
+    const currRegs=S.data.myRegistrations||[];
+    const evRegs=S.data.myEventRegistrations||[];
+    // Combine for display, up to 3 total
+    const allRegs=[...currRegs.map(r=>({...r,_type:'curr'})),...evRegs.map(r=>({...r,_type:'event'}))].slice(0,3);
 
-    const regCards=regs.slice(0,3).map(r=>{
+    const regCards=allRegs.map(r=>{
+        if(r._type==='event'){
+            const closeDate=r[8]||'';
+            const evDate=r[1]||'';
+            const closed=closeDate&&toDateStr(closeDate)<localToday();
+            const done=isCompleted(evDate);
+            const maxVols=parseInt(r[6])||0;
+            const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
+            const countdown=formatCountdown(closeDate);
+            return `<div class="curr-card ev-card dash-assign-card" data-assign-name="${esc(r[0]||'')}" data-type="event" style="cursor:pointer">
+                <div style="display:flex;align-items:flex-start;gap:12px">
+                    <div style="flex:1;min-width:0">
+                        <div class="curr-title">${esc(r[0]||'Event')}</div>
+                        <div class="curr-meta" style="margin-top:4px">📅 ${fmtDateTimeStr(evDate)} · ⏱ ${esc(String(r[2]||0))}h credit</div>
+                        ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate)}</div>`:''}
+                        ${done?`<div class="curr-waiting">⏳ Waiting for hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots</div>`}
+                    </div>
+                    <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':closed?'<span class="curr-lock-badge">🔒 Closed</span>':`<span class="curr-countdown" data-lockdate="${esc(closeDate)}">${esc(countdown)}</span>`}</div>
+                </div>
+            </div>`;
+        }
         const locked=isClosed(r[5],r[1]);
         const done=isCompleted(r[1]);
         const maxVols=parseInt(r[6])||0;
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
         const startDate=r[5]||'';
         const countdown=formatCountdown(startDate);
-        return `<div class="curr-card dash-assign-card" data-assign-name="${esc(r[0]||'')}" style="cursor:pointer">
+        return `<div class="curr-card dash-assign-card" data-assign-name="${esc(r[0]||'')}" data-type="curr" style="cursor:pointer">
             <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
                     <div class="curr-title">${esc(r[0]||'Assignment')}</div>
@@ -656,12 +825,16 @@ function viewDashboard() {
     const trackColor=(track.color)||'var(--blue)';
     const trackColorG=(track.glow)||'rgba(56,189,248,.12)';
 
+    // Switch to director view button (if dirRole is set meaning they're also a director)
+    const switchBtn=S.dirRole?`<button class="btn btn-ghost btn-sm view-toggle-btn" onclick="switchToDirectorView()">🎩 Director View</button>`:'';
+
     root.innerHTML=`
         <div class="view-header">
             <div>
                 <div class="view-title">Welcome back, ${esc((u.name||'').split(' ')[0])} 👋</div>
-                <div class="view-subtitle">${tierBadge(u.tier)}</div>
+                <div class="view-subtitle">${u.tier?tierBadge(u.tier):''}</div>
             </div>
+            <div class="view-actions">${switchBtn}</div>
         </div>
         ${u.track?`<div class="dash-track-banner" style="--track-color:${trackColor};--track-glow:${trackColorG}">
             <div class="dash-track-icon">${track.icon||'🏷'}</div>
@@ -669,7 +842,7 @@ function viewDashboard() {
                 <div class="dash-track-name">${esc(u.track)} Team</div>
                 <div class="dash-track-sub">${u.lead?'Team Lead · ':''}Curio Crate Volunteer</div>
             </div>
-            ${tierBadge(u.tier)}
+            ${u.tier?tierBadge(u.tier):''}
         </div>`:''}
         <div class="card-grid card-grid-4 mb-20">
             <div class="stat-card">
@@ -686,15 +859,15 @@ function viewDashboard() {
             </div>
             <div class="stat-card">
                 <div class="stat-icon" style="background:var(--gold-g)">✋</div>
-                <div><div class="stat-val" style="color:var(--gold)">${regs.length}</div><div class="stat-lbl">Registered</div></div>
+                <div><div class="stat-val" style="color:var(--gold)">${currRegs.length+evRegs.length}</div><div class="stat-lbl">Registered</div></div>
             </div>
         </div>
         <div class="dash-two-col">
             <div>
                 <div class="section-title">YOUR ACTIVE REGISTRATIONS</div>
-                ${regs.length
-                    ? regCards+'<button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate(\'curriculum\')">View all assignments →</button>'
-                    : '<div class="card"><div class="muted text-small">No active registrations yet.</div><button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'curriculum\')">Browse Assignments →</button></div>'}
+                ${allRegs.length
+                    ? regCards+'<button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate(\'activities\')">View all activities →</button>'
+                    : '<div class="card"><div class="muted text-small">No active registrations yet.</div><button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'activities\')">Browse Activities →</button></div>'}
             </div>
             <div>
                 <div class="section-title">YOUR DIRECTORS</div>
@@ -720,8 +893,14 @@ function viewDashboard() {
     root.querySelectorAll('.dash-assign-card').forEach(card=>{
         card.addEventListener('click',()=>{
             const name=card.dataset.assignName;
-            const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
-            if(r)showAssignmentDetail(r);
+            const type=card.dataset.type;
+            if(type==='event'){
+                const r=(S.data.upcomingEvents||[]).find(row=>(row[0]||'').trim()===name.trim());
+                if(r)showEventDetail(r);
+            } else {
+                const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
+                if(r)showAssignmentDetail(r);
+            }
         });
     });
     startCountdownTimers();
@@ -729,17 +908,21 @@ function viewDashboard() {
 
 function viewDirectorOverview() {
     const root=document.getElementById('view-root');
-    const roleInfo=CONFIG.DIRECTORS[S.role]||{title:'Director',track:''};
+    const roleInfo=CONFIG.DIRECTORS[S.role]||{title:roleLabel(S.role),track:getDirTrack(S.role)};
     const assignments=S.data.curriculum||[];
     const events=S.data.events||[];
+    const upcomingEvents=S.data.upcomingEvents||[];
     const vols=S.data.volunteers||[];
     const openAssignments=assignments.filter(r=>!isLocked(r[5]));
+    // Switch to volunteer view button
+    const switchBtn=S.volUser?`<button class="btn btn-ghost btn-sm view-toggle-btn" onclick="switchToVolunteerView()">👤 Volunteer View</button>`:'';
     root.innerHTML=`
         <div class="view-header">
             <div>
                 <div class="view-title">Overview 🏠</div>
-                <div class="view-subtitle">${roleInfo.title} · ${roleInfo.track||'All Tracks'}</div>
+                <div class="view-subtitle">${esc(roleInfo.title)} · ${esc(roleInfo.track||'All Tracks')}</div>
             </div>
+            <div class="view-actions">${switchBtn}</div>
         </div>
         <div class="card-grid card-grid-3 mb-20">
             <div class="stat-card">
@@ -1050,7 +1233,8 @@ function showAssignmentDetail(r) {
    ═══════════════════════════════════════════════════════════════ */
 function viewMyProgress() {
     const root=document.getElementById('view-root');
-    const u=S.user||{};
+    // chapter_rep and directors use volUser for personal stats if available
+    const u=(S.role==='chapter_rep'||S.dirRole)?( S.volUser||S.user||{} ):(S.user||{});
     const stats=S.data.myStats||{totalHours:0,curricCount:0,eventsCount:0};
     const currentTier=u.tier||'1';
     const tierOrder=[1,2,3,4];
@@ -1251,26 +1435,31 @@ function renderLbList() {
    ═══════════════════════════════════════════════════════════════ */
 function viewDirectorPanel(activeTab) {
     const root=document.getElementById('view-root');
-    const isPresident=S.role==='president';
-    const isDOO=S.role==='doo';
-    const isDOC=S.role==='doc';
-    const roleInfo=CONFIG.DIRECTORS[S.role]||{title:'Director',track:''};
+    const r=S.role;
+    const roleInfo=CONFIG.DIRECTORS[r]||{title:roleLabel(r),track:getDirTrack(r)};
 
     const tabs=[
-        {id:'roster',          label:'👥 Roster'},
-        ...(isDOC||isPresident?[{id:'post-assignment',label:'📋 Post Assignment'}]:[]),
-        ...(isDOC||isPresident?[{id:'give-hours',     label:'✅ Give Hours'}]:[]),
-        ...(isDOO||isPresident?[{id:'record-event',   label:'🎓 Record Event'}]:[]),
-        ...(isPresident?       [{id:'manage-tiers',   label:'👑 Manage Tiers'}]:[]),
+        {id:'roster',            label:'👥 Roster'},
+        ...(canPostAssignment(r)?[{id:'post-assignment',label:'📋 Post Assignment'}]:[]),
+        ...(canGiveHoursAssign(r)?[{id:'give-hours',    label:'✅ Give Hours'}]:[]),
+        ...(canPostEvent(r)?      [{id:'post-event',    label:'📅 Post Event'}]:[]),
+        ...(canGiveHoursEvent(r)? [{id:'give-event-hours',label:'🎓 Give Event Hours'}]:[]),
+        ...(canRecordAdHoc(r)?    [{id:'record-event',  label:'📝 Record Ad-Hoc'}]:[]),
+        ...(canManageTiersRole(r)?[{id:'manage-tiers',  label:'👑 Manage Tiers'}]:[]),
     ];
+
+    const switchBtn=S.volUser?`<button class="btn btn-ghost btn-sm view-toggle-btn" onclick="switchToVolunteerView()">👤 Volunteer View</button>`:'';
 
     root.innerHTML=`
         <div class="view-header">
             <div>
-                <div class="view-title">${isPresident?'👑 President Dashboard':roleInfo.title}</div>
-                <div class="view-subtitle">${roleInfo.track||'All Tracks'} · Director View</div>
+                <div class="view-title">${esc(roleInfo.title)}</div>
+                <div class="view-subtitle">${esc(roleInfo.track||'All Tracks')} · Director View</div>
             </div>
-            <button class="btn btn-ghost btn-sm" id="dir-refresh-btn">↺ Refresh</button>
+            <div class="view-actions">
+                ${switchBtn}
+                <button class="btn btn-ghost btn-sm" id="dir-refresh-btn">↺ Refresh</button>
+            </div>
         </div>
         <div class="panel-tabs" id="dir-tabs">
             ${tabs.map(t=>`<button class="panel-tab${t.id===activeTab?' active':''}" data-tab="${t.id}">${t.label}</button>`).join('')}
@@ -1280,8 +1469,7 @@ function viewDirectorPanel(activeTab) {
     document.getElementById('dir-refresh-btn').onclick=async()=>{
         const btn=document.getElementById('dir-refresh-btn');
         btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
-        const track=isPresident?'All':(roleInfo.track||'');
-        await loadDirectorData(track).catch(()=>{});
+        await loadDirectorData(getDirTrack(r)).catch(()=>{});
         viewDirectorPanel(activeTab);
     };
     root.querySelectorAll('#dir-tabs .panel-tab').forEach(tab=>{
@@ -1294,12 +1482,14 @@ function renderDirPanel(tab) {
     const body=document.getElementById('dir-panel-body');
     if(!body)return;
     switch(tab){
-        case 'roster':          body.innerHTML=dirRosterHTML();       attachRosterEvents();      break;
-        case 'post-assignment': body.innerHTML=dirPostAssignHTML();   attachPostAssignEvents();  break;
-        case 'give-hours':      body.innerHTML=dirGiveHoursHTML();    attachGiveHoursEvents();   break;
-        case 'record-event':    body.innerHTML=dirRecordEventHTML();  attachRecordEventEvents(); break;
-        case 'manage-tiers':    body.innerHTML=dirManageTiersHTML();  attachManageTiersEvents(); break;
-        default:                body.innerHTML=dirRosterHTML();       attachRosterEvents();
+        case 'roster':          body.innerHTML=dirRosterHTML();          attachRosterEvents();         break;
+        case 'post-assignment': body.innerHTML=dirPostAssignHTML();      attachPostAssignEvents();     break;
+        case 'give-hours':      body.innerHTML=dirGiveHoursHTML();       attachGiveHoursEvents();      break;
+        case 'post-event':      body.innerHTML=dirPostEventHTML();       attachPostEventEvents();      break;
+        case 'give-event-hours':body.innerHTML=dirGiveEventHoursHTML();  attachGiveEventHoursEvents(); break;
+        case 'record-event':    body.innerHTML=dirRecordEventHTML();     attachRecordEventEvents();    break;
+        case 'manage-tiers':    body.innerHTML=dirManageTiersHTML();     attachManageTiersEvents();    break;
+        default:                body.innerHTML=dirRosterHTML();          attachRosterEvents();
     }
 }
 
@@ -1450,7 +1640,7 @@ function attachPostAssignEvents() {
             });
             toast(`"${name}" posted!`,'success');
             ['pa-name','pa-slides','pa-due','pa-start','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
-            const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+            const track=getDirTrack(S.role);
             await loadDirectorData(track).catch(()=>{});
             viewDirectorPanel('post-assignment');
         } catch(e){err.textContent=e.message;}
@@ -1473,7 +1663,7 @@ function attachPostAssignEvents() {
             try {
                 await postAction('edit_curriculum',{assignmentName:name,fields:{startDate:localYesterday()}});
                 toast(`Registration closed — "${name}" has started.`,'success');
-                const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+                const track=getDirTrack(S.role);
                 await loadDirectorData(track).catch(()=>{});
                 viewDirectorPanel('post-assignment');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='▶ Start Now';}
@@ -1488,7 +1678,7 @@ function attachPostAssignEvents() {
             try {
                 await postAction('edit_curriculum',{assignmentName:name,fields:{startDate:localYesterday(),dueDate:localYesterday()}});
                 toast(`"${name}" marked as completed.`,'success');
-                const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+                const track=getDirTrack(S.role);
                 await loadDirectorData(track).catch(()=>{});
                 viewDirectorPanel('post-assignment');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✓ Finish Early';}
@@ -1558,7 +1748,7 @@ function showEditAssignment(r) {
             await postAction('edit_curriculum',{assignmentName:name,fields:{slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions}});
             toast(`"${name}" updated!`,'success');
             close();
-            const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+            const track=getDirTrack(S.role);
             await loadDirectorData(track).catch(()=>{});
             viewDirectorPanel('post-assignment');
         } catch(e){err.textContent=e.message;btn.disabled=false;btn.textContent='Save Changes';}
@@ -1581,7 +1771,12 @@ function dirGiveHoursHTML() {
         const locked=isLocked(r[5]);
         const volChips=regList.map(n=>{
             const disc=discordMap[n.toLowerCase()]||'';
-            return `<span class="vol-chip">${esc(n)}${disc?' · @'+esc(disc):''}</span>`;
+            const dirR=getDirRoleForName(n);
+            const roleBadge=dirR?`<span class="slot-role-badge">${roleLabel(dirR)}</span>`:'';
+            return `<span class="give-hrs-chip" data-vol="${esc(n)}">
+                ${esc(n)}${disc?' · @'+esc(disc):''}${roleBadge}
+                <button class="remove-vol-btn" title="Mark as no-show">✕</button>
+            </span>`;
         }).join('');
         const creditedChips=credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('');
         return `<div class="curr-card ${locked?'curr-locked':'curr-open'}">
@@ -1594,28 +1789,41 @@ function dirGiveHoursHTML() {
                     ${locked?'<span class="curr-lock-badge">🔒 Locked</span>':'<span class="curr-open-badge">Open</span>'}
                 </div>
             </div>
-            ${regList.length?`<div class="vol-chips mt-10"><div class="muted text-small mb-4">Will receive hours:</div>${volChips}</div>`:'<div class="muted text-small mt-8">No volunteers registered.</div>'}
+            ${regList.length?`<div class="vol-chip-row mt-10" data-assign="${esc(name)}"><div class="muted text-small mb-4" style="width:100%">Will receive hours (click ✕ to exclude no-shows):</div>${volChips}</div>`:'<div class="muted text-small mt-8">No volunteers registered.</div>'}
             ${alreadyGiven?`<div class="vol-chips mt-8"><div class="muted text-small mb-4">Already given to:</div>${creditedChips}</div>`:''}
             ${regList.length?`<button class="btn ${alreadyGiven?'btn-ghost':'btn-primary'} btn-sm mt-12 give-hrs-btn" data-name="${esc(name)}">${alreadyGiven?'↻ Re-give Hours':'✅ Give Hours'}</button>`:''}
         </div>`;
     }).join('');
 
     return `<div class="card mb-16" style="border-color:rgba(251,191,36,.2)">
-        <div class="muted text-small" style="line-height:1.7"><strong style="color:var(--gold)">How Give Hours works:</strong> After verifying the slides are complete, click "Give Hours" to credit all registered volunteers. This copies the registered list to the contributors column, which updates the leaderboard.</div>
+        <div class="muted text-small" style="line-height:1.7"><strong style="color:var(--gold)">How Give Hours works:</strong> Click ✕ next to any volunteer to mark them as a no-show — they stay registered but won't receive credit. Then click "Give Hours" to credit the remaining volunteers.</div>
     </div>${cards}`;
 }
 
 function attachGiveHoursEvents() {
+    // Toggle no-show exclusion
+    document.querySelectorAll('.give-hrs-chip .remove-vol-btn').forEach(rmBtn=>{
+        rmBtn.addEventListener('click',e=>{
+            e.stopPropagation();
+            const chip=rmBtn.closest('.give-hrs-chip');
+            chip.classList.toggle('vol-excluded');
+        });
+    });
     document.querySelectorAll('.give-hrs-btn').forEach(btn=>{
         btn.onclick=async()=>{
             const assignmentName=btn.dataset.name;
-            if(!confirm(`Give hours to all registered volunteers for "${assignmentName}"?\n\nThis will update the leaderboard.`))return;
+            // Collect non-excluded volunteers from this assignment's chip row
+            const chipRow=document.querySelector(`.vol-chip-row[data-assign="${CSS.escape(assignmentName)}"]`);
+            const finalAttendees=chipRow
+                ?[...chipRow.querySelectorAll('.give-hrs-chip:not(.vol-excluded)')].map(c=>(c.dataset.vol||'').trim()).filter(Boolean)
+                :[];
+            const attendeesStr=finalAttendees.join(', ');
+            if(!confirm(`Give hours to ${finalAttendees.length} volunteer(s) for "${assignmentName}"?\n\nThis will update the leaderboard.`))return;
             btn.disabled=true;btn.textContent='Giving hours…';
             try {
-                await postAction('give_hours',{assignmentName,givenBy:S.user?.name||'Director',givenDate:new Date().toISOString()});
+                await postAction('give_hours',{assignmentName,attendees:attendeesStr,givenBy:S.user?.name||'Director',givenDate:new Date().toISOString()});
                 toast('Hours given! Leaderboard updates shortly.','success');
-                const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
-                await loadDirectorData(track).catch(()=>{});
+                await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
                 viewDirectorPanel('give-hours');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✅ Give Hours';}
         };
@@ -1695,7 +1903,7 @@ function attachRecordEventEvents() {
             document.getElementById('re-attendees').value='';
             document.getElementById('re-assembly').checked=false;
             S.data.lbReady=false; // force lb refresh
-            const track=S.role==='president'?'All':(CONFIG.DIRECTORS[S.role]||{}).track||'';
+            const track=getDirTrack(S.role);
             await loadDirectorData(track).catch(()=>{});
             viewDirectorPanel('record-event');
         } catch(e){err.textContent=e.message;btn.disabled=false;btn.textContent='🎓 Record Event';}
@@ -1809,6 +2017,791 @@ function setupMobileToggle() {
 }
 function closeMobileSidebar() {
     document.getElementById('portal-shell')?.classList.remove('sidebar-open');
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VIEW: ACTIVITIES (combined curriculum + upcoming events)
+   ═══════════════════════════════════════════════════════════════ */
+function viewActivities() {
+    const root=document.getElementById('view-root');
+    const assignments=S.data.curriculum||[];
+    const upcomingEvs=S.data.upcomingEvents||[];
+    const total=assignments.length+upcomingEvs.length;
+    const openAssign=assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1])).length;
+    const openEvs=upcomingEvs.filter(r=>{
+        const cd=toDateStr(r[8]);
+        return !cd||cd>=localToday();
+    }).length;
+
+    root.innerHTML=`
+        <div class="view-header">
+            <div>
+                <div class="view-title">Activities 📚</div>
+                <div class="view-subtitle">${total} total · ${openAssign+openEvs} open now</div>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="act-refresh-btn">↺ Refresh</button>
+        </div>
+        <div class="panel-tabs" id="act-tabs">
+            <button class="panel-tab active" data-tab="available">Available</button>
+            <button class="panel-tab" data-tab="mine">Mine</button>
+            <button class="panel-tab" data-tab="all">All (${total})</button>
+        </div>
+        <div id="act-list"></div>`;
+
+    document.getElementById('act-refresh-btn').onclick=async()=>{
+        const btn=document.getElementById('act-refresh-btn');
+        btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
+        await loadVolunteerData(S.user?.name||'').catch(()=>{});
+        viewActivities();
+    };
+    root.querySelectorAll('#act-tabs .panel-tab').forEach(tab=>{
+        tab.onclick=()=>{
+            root.querySelectorAll('#act-tabs .panel-tab').forEach(t=>t.classList.remove('active'));
+            tab.classList.add('active');
+            renderActivitiesList(tab.dataset.tab);
+        };
+    });
+    renderActivitiesList('available');
+}
+
+function renderActivitiesList(filter) {
+    const listEl=document.getElementById('act-list');
+    if(!listEl)return;
+    const assignments=[...(S.data.curriculum||[])].reverse();
+    const upcomingEvs=[...(S.data.upcomingEvents||[])].reverse();
+    const lower=(S.user?.name||'').toLowerCase();
+
+    if(filter==='all'){
+        const assignRows=assignments.map(r=>currSimpleRowHTML(r)).join('');
+        const evRows=upcomingEvs.map(r=>evSimpleRowHTML(r)).join('');
+        if(!assignRows&&!evRows){listEl.innerHTML=`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No activities yet</div></div>`;return;}
+        listEl.innerHTML=(assignRows?`<div class="activities-section-label">Curriculum Assignments</div>${assignRows}`:'')
+            +(evRows?`<div class="activities-section-label" style="margin-top:16px">Upcoming Events</div>${evRows}`:'');
+        listEl.querySelectorAll('.curr-simple-row').forEach(row=>{
+            row.addEventListener('click',()=>{
+                const name=row.dataset.name;
+                if(row.dataset.type==='event'){
+                    const r=upcomingEvs.find(x=>(x[0]||'').trim()===name.trim());
+                    if(r)showEventDetail(r);
+                } else {
+                    const r=assignments.find(x=>(x[0]||'').trim()===name.trim());
+                    if(r)showAssignmentDetail(r);
+                }
+            });
+        });
+        return;
+    }
+
+    let filteredAssign=assignments;
+    let filteredEvs=upcomingEvs;
+    if(filter==='available'){
+        filteredAssign=assignments.filter(r=>!isCompleted(r[1]));
+        filteredEvs=upcomingEvs.filter(r=>{
+            const cd=toDateStr(r[8]);
+            return !isCompleted(r[1])&&(!cd||cd>=localToday());
+        });
+    } else if(filter==='mine'){
+        filteredAssign=assignments.filter(r=>{
+            const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
+            const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
+            return reg.includes(lower)||cred.includes(lower);
+        });
+        filteredEvs=upcomingEvs.filter(r=>{
+            const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
+            const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
+            return reg.includes(lower)||cred.includes(lower);
+        });
+    }
+
+    if(!filteredAssign.length&&!filteredEvs.length){
+        listEl.innerHTML=`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">Nothing here yet</div></div>`;
+        return;
+    }
+
+    let html='';
+    if(filteredAssign.length){
+        html+=`<div class="activities-section-label">Curriculum Assignments</div>`;
+        html+=filteredAssign.map(r=>currCardHTML(r,lower)).join('');
+    }
+    if(filteredEvs.length){
+        html+=`<div class="activities-section-label" style="margin-top:${filteredAssign.length?20:0}px">Upcoming Events</div>`;
+        html+=filteredEvs.map(r=>evCardHTML(r,lower)).join('');
+    }
+    listEl.innerHTML=html;
+    attachActivitiesEvents();
+    startCountdownTimers();
+}
+
+function evCardHTML(r,lowerName) {
+    const name=r[0]||'Untitled';
+    const evDate=r[1]||'';
+    const hours=r[2]||'0';
+    const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const isAssembly=isChecked(r[4]);
+    const isLeadership=isChecked(r[5]);
+    const maxVols=parseInt(r[6])||0;
+    const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const closeDate=r[8]||'';
+    const instructions=r[9]||'';
+    const chapterLabel=r[10]||'';
+    const closed=closeDate&&toDateStr(closeDate)<localToday();
+    const done=isCompleted(evDate);
+    const isCredited=credited.some(n=>n.toLowerCase()===lowerName);
+    const isRegistered=regList.some(n=>n.toLowerCase()===lowerName);
+    const isFull=maxVols>0&&regList.length>=maxVols;
+    const countdown=formatCountdown(closeDate);
+
+    let statusBadge='';
+    if(isCredited)statusBadge='<span class="curr-credit-badge">✅ Hours given</span>';
+    else if(isRegistered)statusBadge='<span class="curr-reg-badge">✋ Registered</span>';
+
+    const lockBadge=done
+        ?'<span class="curr-done-badge">✅ Completed</span>'
+        :closed?'<span class="curr-lock-badge">🔒 Closed</span>'
+        :`<span class="curr-countdown" data-lockdate="${esc(closeDate)}">${esc(countdown)}</span>`;
+
+    const signupCloseHTML=!done&&!closed&&closeDate
+        ?`<div class="curr-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate)}</strong></div>`:'';
+
+    const tags=[];
+    if(isAssembly)tags.push('<span class="ev-tag ev-tag-assembly">Assembly</span>');
+    if(isLeadership)tags.push('<span class="ev-tag ev-tag-leadership">Leadership</span>');
+    const tagsHTML=tags.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">${tags.join('')}</div>`:'';
+
+    const chapterBadge=chapterLabel?`<span class="chapter-label-badge">🏫 ${esc(chapterLabel)}</span>`:'';
+
+    // Slot grid
+    const slotsCount=maxVols>0?maxVols:regList.length;
+    const slotItems=[];
+    for(let i=0;i<slotsCount;i++){
+        const vol=regList[i];
+        if(vol){
+            const inits=vol.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+            const isYou=vol.toLowerCase()===lowerName;
+            const dirR=getDirRoleForName(vol);
+            const roleBadge=dirR?`<span class="slot-role-badge">${roleLabel(dirR)}</span>`:'';
+            slotItems.push(`<div class="vol-slot ${isYou?'slot-you':'slot-filled'}"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name">${esc(vol)}</span>${roleBadge}</div>`);
+        } else {
+            slotItems.push(`<div class="vol-slot slot-empty"><div class="vol-slot-av"></div><span class="vol-slot-name">Open</span></div>`);
+        }
+    }
+
+    let creditedHTML='';
+    if(credited.length){
+        const cslots=credited.map(n=>{
+            const inits=n.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
+            return `<div class="vol-slot slot-credited"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name">${esc(n)}</span></div>`;
+        }).join('');
+        creditedHTML=`<div class="curr-subsection"><div class="curr-subsection-lbl">Hours confirmed</div><div class="slot-grid">${cslots}</div></div>`;
+    }
+
+    let actionHTML='';
+    if(!isCredited){
+        if(!closed&&!isRegistered&&!isFull){
+            actionHTML=`<button class="btn btn-primary btn-sm ev-reg-btn" data-name="${esc(name)}" data-vol="${esc(S.user?.name||'')}">✋ Register</button>`;
+        } else if(!closed&&isRegistered){
+            actionHTML=`<button class="btn btn-ghost btn-sm ev-unreg-btn" data-name="${esc(name)}" data-vol="${esc(S.user?.name||'')}">✕ Unregister</button>`;
+        } else if(closed&&!isRegistered){
+            actionHTML='<span class="muted text-small">Registration closed</span>';
+        } else if(isFull&&!isRegistered){
+            actionHTML='<span class="muted text-small">Slots full</span>';
+        }
+    }
+
+    const cardCls=done?'curr-completed':closed&&!isCredited?'curr-locked':'';
+    return `<div class="curr-card ev-card ${cardCls} ${isCredited?'curr-credited':''} curr-clickable" data-name="${esc(name)}" data-type="event">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <div class="curr-title">${esc(name)}</div>
+                    ${chapterBadge}
+                </div>
+                <div class="curr-meta" style="margin-top:5px">📅 ${fmtDateTimeStr(evDate)} · ⏱ ${esc(hours)}h credit</div>
+                ${tagsHTML}
+                ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
+                ${signupCloseHTML}
+            </div>
+            <div style="flex-shrink:0">${lockBadge}</div>
+        </div>
+        ${slotItems.length?`<div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.055)"><div class="slot-grid">${slotItems.join('')}</div></div>`:''}
+        ${creditedHTML}
+        ${actionHTML?`<div class="curr-actions" style="margin-top:12px">${actionHTML}</div>`:''}
+    </div>`;
+}
+
+function evSimpleRowHTML(r) {
+    const name=r[0]||'Untitled';
+    const evDate=r[1]||'';
+    const hours=r[2]||'0';
+    const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const closeDate=r[8]||'';
+    const chapterLabel=r[10]||'';
+    const done=isCompleted(evDate);
+    const closed=closeDate&&toDateStr(closeDate)<localToday();
+    const count=credited.length||regList.length;
+    let badge='';
+    if(done)badge='<span class="curr-done-badge" style="font-size:10px;padding:2px 8px">Done</span>';
+    else if(closed)badge='<span class="curr-lock-badge" style="font-size:10px;padding:2px 8px">Closed</span>';
+    else badge='<span class="curr-open-badge" style="font-size:10px;padding:2px 8px">Open</span>';
+    return `<div class="curr-simple-row ${done?'done':''}" data-name="${esc(name)}" data-type="event" style="cursor:pointer">
+        <span class="curr-simple-icon">${done?'✅':closed?'🔒':'📅'}</span>
+        <div style="flex:1;min-width:0">
+            <div class="curr-simple-name">${esc(name)}${chapterLabel?` <span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
+            <div class="curr-simple-meta">${fmtDateTimeStr(evDate)} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
+        </div>
+        <span class="curr-simple-badge">${badge}</span>
+    </div>`;
+}
+
+function showEventDetail(r) {
+    const name=r[0]||'Untitled';
+    const evDate=r[1]||'';
+    const hours=r[2]||'0';
+    const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const isAssembly=isChecked(r[4]);
+    const isLeadership=isChecked(r[5]);
+    const maxVols=parseInt(r[6])||0;
+    const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
+    const closeDate=r[8]||'';
+    const instructions=r[9]||'';
+    const chapterLabel=r[10]||'';
+    const done=isCompleted(evDate);
+    const closed=closeDate&&toDateStr(closeDate)<localToday();
+
+    let stateBadge='';
+    if(done)stateBadge='<span class="curr-done-badge">✅ Completed</span>';
+    else if(closed)stateBadge='<span class="curr-lock-badge">🔒 Registration closed</span>';
+
+    const tags=[];
+    if(isAssembly)tags.push('<span class="ev-tag ev-tag-assembly">Assembly</span>');
+    if(isLeadership)tags.push('<span class="ev-tag ev-tag-leadership">Leadership</span>');
+
+    const html=`
+        <div class="modal-header">
+            <div class="modal-title">${esc(name)}</div>
+            <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-chips">
+                <span class="modal-chip">📅 ${fmtDateTimeStr(evDate)}</span>
+                <span class="modal-chip">⏱ ${esc(hours)}h credit</span>
+                <span class="modal-chip">👥 ${regList.length}/${maxVols||'?'} slots</span>
+                ${chapterLabel?`<span class="chapter-label-badge">🏫 ${esc(chapterLabel)}</span>`:''}
+                ${tags.join('')}
+                ${stateBadge}
+            </div>
+            ${!done&&!closed&&closeDate?`<div class="modal-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate)}</strong></div>`:''}
+            ${instructions?`<div class="modal-section">
+                <div class="modal-section-title">INSTRUCTIONS</div>
+                <div class="modal-instructions">${esc(instructions).replace(/\n/g,'<br>')}</div>
+            </div>`:''}
+            ${regList.length?`<div class="modal-section">
+                <div class="modal-section-title">REGISTERED (${regList.length})</div>
+                <div class="vol-chips">${regList.map(n=>`<span class="vol-chip">${esc(n)}</span>`).join('')}</div>
+            </div>`:''}
+            ${credited.length?`<div class="modal-section">
+                <div class="modal-section-title">HOURS GIVEN TO</div>
+                <div class="vol-chips">${credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('')}</div>
+            </div>`:''}
+        </div>`;
+    openModal(html);
+}
+
+function attachActivitiesEvents() {
+    // Curriculum card clicks
+    document.querySelectorAll('.curr-card.curr-clickable:not([data-type="event"])').forEach(card=>{
+        card.addEventListener('click',e=>{
+            if(e.target.closest('.btn'))return;
+            const name=card.dataset.name;
+            const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
+            if(r)showAssignmentDetail(r);
+        });
+    });
+    // Event card clicks
+    document.querySelectorAll('.curr-card.curr-clickable[data-type="event"]').forEach(card=>{
+        card.addEventListener('click',e=>{
+            if(e.target.closest('.btn'))return;
+            const name=card.dataset.name;
+            const r=(S.data.upcomingEvents||[]).find(row=>(row[0]||'').trim()===name.trim());
+            if(r)showEventDetail(r);
+        });
+    });
+    // Curriculum register/unregister
+    document.querySelectorAll('.curr-reg-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const assignmentName=btn.dataset.name,volunteerName=btn.dataset.vol;
+            btn.disabled=true;btn.textContent='Registering…';
+            try {
+                await postAction('register_curriculum',{assignmentName,volunteerName});
+                toast('Registered! You\'re in.','success');
+                await loadVolunteerData(volunteerName).catch(()=>{});
+                renderActivitiesList(document.querySelector('#act-tabs .panel-tab.active')?.dataset.tab||'available');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✋ Register';}
+        };
+    });
+    document.querySelectorAll('.curr-unreg-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const assignmentName=btn.dataset.name,volunteerName=btn.dataset.vol;
+            btn.disabled=true;btn.textContent='Removing…';
+            try {
+                await postAction('unregister_curriculum',{assignmentName,volunteerName});
+                toast('Unregistered.','success');
+                await loadVolunteerData(volunteerName).catch(()=>{});
+                renderActivitiesList(document.querySelector('#act-tabs .panel-tab.active')?.dataset.tab||'available');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✕ Unregister';}
+        };
+    });
+    // Event register/unregister
+    document.querySelectorAll('.ev-reg-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const eventName=btn.dataset.name,volunteerName=btn.dataset.vol;
+            btn.disabled=true;btn.textContent='Registering…';
+            try {
+                await postAction('register_event',{eventName,volunteerName});
+                toast('Registered for event!','success');
+                await loadVolunteerData(volunteerName).catch(()=>{});
+                renderActivitiesList(document.querySelector('#act-tabs .panel-tab.active')?.dataset.tab||'available');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✋ Register';}
+        };
+    });
+    document.querySelectorAll('.ev-unreg-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const eventName=btn.dataset.name,volunteerName=btn.dataset.vol;
+            btn.disabled=true;btn.textContent='Removing…';
+            try {
+                await postAction('unregister_event',{eventName,volunteerName});
+                toast('Unregistered from event.','success');
+                await loadVolunteerData(volunteerName).catch(()=>{});
+                renderActivitiesList(document.querySelector('#act-tabs .panel-tab.active')?.dataset.tab||'available');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✕ Unregister';}
+        };
+    });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DIRECTOR: POST EVENT
+   ═══════════════════════════════════════════════════════════════ */
+function dirPostEventHTML() {
+    const existing=(S.data.upcomingEvents||[]).slice().reverse();
+    const isChapRep=S.role==='chapter_rep';
+    const chapSchool=S.chapData?.school||'';
+
+    const existingCards=existing.map(r=>{
+        const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
+        const maxVols=parseInt(r[6])||0;
+        const closeDate=r[8]||'';
+        const done=isCompleted(r[1]);
+        const closed=closeDate&&toDateStr(closeDate)<localToday();
+        const statusBadge=done
+            ?'<span class="curr-done-badge">✅ Completed</span>'
+            :closed?'<span class="curr-lock-badge">🔒 Closed</span>'
+            :`<span class="curr-open-badge">Open · ${esc(formatCountdown(closeDate))}</span>`;
+        const chap=r[10]?`<span class="chapter-label-badge" style="font-size:10px">🏫 ${esc(r[10])}</span>`:'';
+        return `<div class="curr-card ev-card">
+            <div class="curr-header">
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                        <div class="curr-title">${esc(r[0]||'')}</div>${chap}
+                    </div>
+                    <div class="curr-meta">${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
+                </div>
+                <div style="flex-shrink:0">${statusBadge}</div>
+            </div>
+            <div class="curr-actions mt-10" style="flex-wrap:wrap;gap:7px">
+                <button class="btn btn-ghost btn-sm ev-edit-btn" data-name="${esc(r[0]||'')}">✏️ Edit</button>
+                ${!closed?`<button class="btn btn-ghost btn-sm ev-startnow-btn" data-name="${esc(r[0]||'')}">▶ Start Now</button>`:''}
+                ${!done?`<button class="btn btn-ghost btn-sm ev-finishearly-btn" data-name="${esc(r[0]||'')}">✓ Finish Early</button>`:''}
+            </div>
+        </div>`;
+    }).join('')||'<div class="muted text-small">No upcoming events posted yet.</div>';
+
+    return `
+        <div style="display:grid;grid-template-columns:1fr 1.1fr;gap:20px;align-items:start">
+            <div class="card">
+                <div class="card-title">POST UPCOMING EVENT</div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Event Name *</label>
+                        <input class="form-input" id="pe-name" placeholder="e.g. Westwood Elementary — Spring Session">
+                    </div>
+                    <div class="form-grid form-grid-2">
+                        <div class="form-group">
+                            <label class="form-label">Event Date &amp; Time *</label>
+                            <input class="form-input" type="datetime-local" id="pe-date">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Signup Close Date &amp; Time *</label>
+                            <input class="form-input" type="datetime-local" id="pe-close">
+                            <div class="form-hint">After this, no new sign-ups</div>
+                        </div>
+                    </div>
+                    <div class="form-grid form-grid-2">
+                        <div class="form-group">
+                            <label class="form-label">Hours Credit *</label>
+                            <input class="form-input" type="number" id="pe-hours" placeholder="2" min="0" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Max Volunteers *</label>
+                            <input class="form-input" type="number" id="pe-max" placeholder="5" min="1">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:4px">
+                            <input type="checkbox" id="pe-assembly" style="width:16px;height:16px;accent-color:var(--blue)">
+                            Mark as Assembly event
+                        </label>
+                        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                            <input type="checkbox" id="pe-leadership" style="width:16px;height:16px;accent-color:var(--blue)">
+                            Mark as Leadership event
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Instructions</label>
+                        <textarea class="form-textarea" id="pe-instructions" style="min-height:80px" placeholder="What volunteers need to know, what to bring, etc."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Chapter Label ${isChapRep?'(auto-filled)':''}</label>
+                        <input class="form-input" id="pe-chapter" value="${esc(chapSchool)}" placeholder="School name (leave blank for all chapters)">
+                        <div class="form-hint">Limits visibility to this chapter's volunteers. Leave blank for org-wide event.</div>
+                    </div>
+                    <div class="form-err" id="pe-err"></div>
+                    <button class="btn btn-primary" id="pe-submit-btn">📅 Post Event</button>
+                </div>
+            </div>
+            <div>
+                <div class="section-title">EXISTING UPCOMING EVENTS (${existing.length})</div>
+                ${existingCards}
+            </div>
+        </div>`;
+}
+
+function attachPostEventEvents() {
+    document.getElementById('pe-submit-btn')?.addEventListener('click',async()=>{
+        const name=document.getElementById('pe-name').value.trim();
+        const eventDate=document.getElementById('pe-date').value;
+        const signupCloseDate=document.getElementById('pe-close').value;
+        const hours=document.getElementById('pe-hours').value;
+        const maxVolunteers=document.getElementById('pe-max').value;
+        const isAssembly=document.getElementById('pe-assembly').checked?'TRUE':'FALSE';
+        const isLeadership=document.getElementById('pe-leadership').checked?'TRUE':'FALSE';
+        const instructions=document.getElementById('pe-instructions').value;
+        const chapterLabel=document.getElementById('pe-chapter').value.trim();
+        const err=document.getElementById('pe-err');
+        if(!name||!eventDate||!signupCloseDate||!hours||!maxVolunteers){err.textContent='All required fields must be filled.';return;}
+        err.textContent='';
+        const btn=document.getElementById('pe-submit-btn');
+        btn.disabled=true;btn.textContent='Posting…';
+        try {
+            await postAction('create_event',{eventName:name,eventDate,signupCloseDate,hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,registeredList:''});
+            toast(`"${name}" posted!`,'success');
+            ['pe-name','pe-date','pe-close','pe-hours','pe-max','pe-instructions'].forEach(id=>{document.getElementById(id).value='';});
+            document.getElementById('pe-assembly').checked=false;
+            document.getElementById('pe-leadership').checked=false;
+            // Restore chapter label for chapter_rep
+            if(S.role==='chapter_rep')document.getElementById('pe-chapter').value=S.chapData?.school||'';
+            await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+            viewDirectorPanel('post-event');
+        } catch(e){err.textContent=e.message;}
+        btn.disabled=false;btn.textContent='📅 Post Event';
+    });
+
+    document.querySelectorAll('.ev-edit-btn').forEach(btn=>{
+        btn.onclick=()=>{
+            const name=btn.dataset.name;
+            const r=(S.data.upcomingEvents||[]).find(row=>(row[0]||'').trim()===name.trim());
+            if(r)showEditEvent(r);
+        };
+    });
+
+    document.querySelectorAll('.ev-startnow-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const name=btn.dataset.name;
+            if(!confirm(`Start "${name}" now?\n\nThis will close registration immediately.`))return;
+            btn.disabled=true;btn.textContent='Starting…';
+            try {
+                await postAction('edit_event',{eventName:name,fields:{signupCloseDate:localYesterday()}});
+                toast(`Registration closed — "${name}" has started.`,'success');
+                await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+                viewDirectorPanel('post-event');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='▶ Start Now';}
+        };
+    });
+
+    document.querySelectorAll('.ev-finishearly-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const name=btn.dataset.name;
+            if(!confirm(`Mark "${name}" as finished early?\n\nThis sets the event date and signup close to yesterday.`))return;
+            btn.disabled=true;btn.textContent='Finishing…';
+            try {
+                await postAction('edit_event',{eventName:name,fields:{eventDate:localYesterday(),signupCloseDate:localYesterday()}});
+                toast(`"${name}" marked as completed.`,'success');
+                await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+                viewDirectorPanel('post-event');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✓ Finish Early';}
+        };
+    });
+}
+
+function showEditEvent(r) {
+    const name=r[0]||'';
+    const html=`
+        <div class="modal-header">
+            <div class="modal-title">Edit Event</div>
+            <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group mb-12">
+                <div class="form-label" style="margin-bottom:4px">Event</div>
+                <div style="font-weight:600;color:var(--text2)">${esc(name)}</div>
+            </div>
+            <div class="form-grid">
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Event Date &amp; Time</label>
+                        <input class="form-input" type="datetime-local" id="ee-date" value="${esc(toDateTimeLocal(r[1]))}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Signup Close Date &amp; Time</label>
+                        <input class="form-input" type="datetime-local" id="ee-close" value="${esc(toDateTimeLocal(r[8]))}">
+                    </div>
+                </div>
+                <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Hours Credit</label>
+                        <input class="form-input" type="number" id="ee-hours" value="${esc(r[2]||'')}" min="0" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Max Volunteers</label>
+                        <input class="form-input" type="number" id="ee-max" value="${esc(r[6]||'')}" min="1">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Chapter Label</label>
+                    <input class="form-input" id="ee-chapter" value="${esc(r[10]||'')}" placeholder="School name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Instructions</label>
+                    <textarea class="form-textarea" id="ee-instructions" style="min-height:80px">${esc(r[9]||'')}</textarea>
+                </div>
+                <div class="form-err" id="ee-err"></div>
+                <button class="btn btn-primary" id="ee-submit-btn">Save Changes</button>
+            </div>
+        </div>`;
+    const close=openModal(html);
+    document.getElementById('ee-submit-btn').addEventListener('click',async()=>{
+        const eventDate=document.getElementById('ee-date').value;
+        const signupCloseDate=document.getElementById('ee-close').value;
+        const hours=document.getElementById('ee-hours').value;
+        const maxVolunteers=document.getElementById('ee-max').value;
+        const chapterLabel=document.getElementById('ee-chapter').value.trim();
+        const instructions=document.getElementById('ee-instructions').value;
+        const err=document.getElementById('ee-err');
+        if(!eventDate){err.textContent='Event date is required.';return;}
+        err.textContent='';
+        const btn=document.getElementById('ee-submit-btn');
+        btn.disabled=true;btn.textContent='Saving…';
+        try {
+            await postAction('edit_event',{eventName:name,fields:{eventDate,signupCloseDate,hours,maxVolunteers,chapterLabel,instructions}});
+            toast(`"${name}" updated!`,'success');
+            close();
+            await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+            viewDirectorPanel('post-event');
+        } catch(e){err.textContent=e.message;btn.disabled=false;btn.textContent='Save Changes';}
+    });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DIRECTOR: GIVE EVENT HOURS
+   ═══════════════════════════════════════════════════════════════ */
+function dirGiveEventHoursHTML() {
+    const events=(S.data.upcomingEvents||[]).slice().reverse();
+    if(!events.length)return`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No upcoming events yet</div><p class="muted text-small">Post upcoming events first, then give hours after they happen.</p></div>`;
+    const allVols=S.data.allVolunteers||[];
+    const discordMap={};
+    allVols.forEach(v=>{discordMap[v.name.toLowerCase()]=v.discord;});
+
+    const cards=events.map(r=>{
+        const name=r[0]||'';
+        const closeDate=r[8]||'';
+        const evDate=r[1]||'';
+        const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
+        const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
+        const alreadyGiven=credited.length>0;
+        const done=isCompleted(evDate);
+        const closed=closeDate&&toDateStr(closeDate)<localToday();
+        // Only show events that are done or registration closed
+        if(!done&&!closed)return'';
+        const volChips=regList.map(n=>{
+            const disc=discordMap[n.toLowerCase()]||'';
+            const dirR=getDirRoleForName(n);
+            const roleBadge=dirR?`<span class="slot-role-badge">${roleLabel(dirR)}</span>`:'';
+            return `<span class="give-hrs-chip" data-vol="${esc(n)}">
+                ${esc(n)}${disc?' · @'+esc(disc):''}${roleBadge}
+                <button class="remove-vol-btn" title="Mark as no-show">✕</button>
+            </span>`;
+        }).join('');
+        const creditedChips=credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('');
+        return `<div class="curr-card ev-card">
+            <div class="curr-header">
+                <div style="flex:1;min-width:0">
+                    <div class="curr-title">${esc(name)}</div>
+                    <div class="curr-meta">${fmtDateTimeStr(evDate)} · ${esc(r[2]||'0')}h credit · ${regList.length} registered</div>
+                </div>
+                <div style="flex-shrink:0">
+                    ${done?'<span class="curr-done-badge">✅ Completed</span>':'<span class="curr-lock-badge">🔒 Closed</span>'}
+                </div>
+            </div>
+            ${regList.length?`<div class="vol-chip-row mt-10" data-event="${esc(name)}"><div class="muted text-small mb-4" style="width:100%">Will receive hours (click ✕ to exclude no-shows):</div>${volChips}</div>`:'<div class="muted text-small mt-8">No volunteers registered.</div>'}
+            ${alreadyGiven?`<div class="vol-chips mt-8"><div class="muted text-small mb-4">Already given to:</div>${creditedChips}</div>`:''}
+            ${regList.length?`<button class="btn ${alreadyGiven?'btn-ghost':'btn-primary'} btn-sm mt-12 give-ev-hrs-btn" data-name="${esc(name)}">${alreadyGiven?'↻ Re-give Event Hours':'🎓 Give Event Hours'}</button>`:''}
+        </div>`;
+    }).filter(Boolean).join('');
+
+    return `<div class="card mb-16" style="border-color:rgba(251,191,36,.2)">
+        <div class="muted text-small" style="line-height:1.7"><strong style="color:var(--gold)">How Give Event Hours works:</strong> Click ✕ to mark no-shows. Then click "Give Event Hours" to credit attending volunteers. Only events that have passed or are closed for registration are shown.</div>
+    </div>${cards||'<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-title">No completed events yet</div><p class="muted text-small">Events appear here after the event date passes or registration closes.</p></div>'}`;
+}
+
+function attachGiveEventHoursEvents() {
+    document.querySelectorAll('.give-hrs-chip .remove-vol-btn').forEach(rmBtn=>{
+        rmBtn.addEventListener('click',e=>{
+            e.stopPropagation();
+            rmBtn.closest('.give-hrs-chip').classList.toggle('vol-excluded');
+        });
+    });
+    document.querySelectorAll('.give-ev-hrs-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const eventName=btn.dataset.name;
+            const chipRow=document.querySelector(`.vol-chip-row[data-event="${CSS.escape(eventName)}"]`);
+            const finalAttendees=chipRow
+                ?[...chipRow.querySelectorAll('.give-hrs-chip:not(.vol-excluded)')].map(c=>(c.dataset.vol||'').trim()).filter(Boolean)
+                :[];
+            const attendeesStr=finalAttendees.join(', ');
+            if(!confirm(`Give hours to ${finalAttendees.length} volunteer(s) for "${eventName}"?`))return;
+            btn.disabled=true;btn.textContent='Giving hours…';
+            try {
+                await postAction('give_event_hours',{eventName,attendees:attendeesStr,givenBy:S.user?.name||'Director',givenDate:new Date().toISOString()});
+                toast('Event hours given!','success');
+                S.data.lbReady=false;
+                await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+                viewDirectorPanel('give-event-hours');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='🎓 Give Event Hours';}
+        };
+    });
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VIEW: MY CHAPTER
+   ═══════════════════════════════════════════════════════════════ */
+function viewMyChapter() {
+    const root=document.getElementById('view-root');
+    // For chapter_rep, use chapData.school; for volunteers, use user.school
+    const rawSchool=S.role==='chapter_rep'?(S.chapData?.school||''):(S.user?.school||'');
+    const userSchool=rawSchool.trim().toLowerCase();
+    const chapters=S.data.chapters||[];
+    // Find chapter rep for user's school
+    const chapEntry=chapters.find(r=>(r[2]||'').trim().toLowerCase()===userSchool);
+    if(!userSchool||!chapEntry){
+        root.innerHTML=`
+            <div class="view-header">
+                <div>
+                    <div class="view-title">My Chapter 🏫</div>
+                    <div class="view-subtitle">Chapter information for your school</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="empty-state" style="padding:32px 0">
+                    <div class="empty-icon">🏫</div>
+                    <div class="empty-title">No Chapter Set Up Yet</div>
+                    <p class="muted text-small">No chapter representative has been assigned for your school (${esc(S.user?.school||'unknown')}). Contact your DOO or President to get a chapter rep assigned.</p>
+                </div>
+            </div>`;
+        return;
+    }
+
+    const chapRepName=(chapEntry[1]||'').trim();
+    const chapSchool=(chapEntry[2]||'').trim();
+
+    // Chapter-local upcoming events
+    const chapEvents=(S.data.upcomingEvents||[]).filter(r=>(r[10]||'').trim().toLowerCase()===userSchool);
+
+    // Chapter members (volunteers with same school)
+    const chapMembers=(S.data.allVolunteers||[]).filter(v=>(v.school||'').trim().toLowerCase()===userSchool);
+
+    root.innerHTML=`
+        <div class="view-header">
+            <div>
+                <div class="view-title">My Chapter 🏫</div>
+                <div class="view-subtitle">${esc(chapSchool)} chapter</div>
+            </div>
+        </div>
+        <div class="card chapter-rep-card mb-20">
+            <div class="sb-av" style="width:48px;height:48px;flex-shrink:0">${avHTML(chapRepName,'',48)}</div>
+            <div>
+                <div style="font-size:10px;font-weight:700;color:var(--textm);text-transform:uppercase;letter-spacing:.08em">Chapter Representative</div>
+                <div style="font-weight:700;font-size:16px;margin-top:2px">${esc(chapRepName)}</div>
+                <div style="font-size:12px;color:var(--textm);margin-top:2px">${esc(chapSchool)}</div>
+            </div>
+        </div>
+        <div class="section-title">CHAPTER EVENTS (${chapEvents.length})</div>
+        ${chapEvents.length
+            ?chapEvents.map(r=>{
+                const closed=(r[8]&&toDateStr(r[8])<localToday());
+                return `<div class="curr-card ev-card">
+                    <div class="curr-title">${esc(r[0]||'')}</div>
+                    <div class="curr-meta">${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h ${closed?'· Closed':''}</div>
+                    ${r[9]?`<div class="muted text-small mt-4" style="font-size:12px">${esc(r[9]).slice(0,100)}</div>`:''}
+                </div>`;
+            }).join('')
+            :'<div class="card"><div class="muted text-small">No chapter-specific events yet.</div></div>'}
+        <div class="section-title mt-20">CHAPTER MEMBERS (${chapMembers.length})</div>
+        <div class="table-wrap">
+        <table class="data-table">
+            <thead><tr><th>Volunteer</th><th>Track</th><th>Tier</th></tr></thead>
+            <tbody>
+                ${chapMembers.map(v=>`<tr>
+                    <td><div class="td-name">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
+                    <td>${trackPill(v.track||'')}</td>
+                    <td>${tierBadge(v.tier||'1')}</td>
+                </tr>`).join('')||'<tr><td colspan="3" class="muted text-small" style="text-align:center;padding:20px">No members found.</td></tr>'}
+            </tbody>
+        </table>
+        </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VIEW TOGGLE: DIRECTOR <-> VOLUNTEER
+   ═══════════════════════════════════════════════════════════════ */
+async function switchToVolunteerView() {
+    if(!S.volUser){toast('No volunteer record linked to this director account.','error');return;}
+    // Save director user
+    S._dirUser=S.user;
+    // Switch to volunteer
+    S.user=S.volUser;
+    S.role='volunteer';
+    showLoading();
+    try {
+        await loadVolunteerData(S.user.name);
+        hideLoading();
+        renderSidebar();
+        renderUserInfo();
+        navigate('dashboard');
+    } catch(e){hideLoading();toast(e.message,'error');}
+}
+
+async function switchToDirectorView() {
+    if(!S._dirUser){return;}
+    S.user=S._dirUser;
+    S.role=S.dirRole;
+    showLoading();
+    try {
+        await loadDirectorData(getDirTrack(S.role));
+        hideLoading();
+        renderSidebar();
+        renderUserInfo();
+        navigate('dashboard');
+    } catch(e){hideLoading();toast(e.message,'error');}
 }
 
 /* ═══════════════════════════════════════════════════════════════

@@ -1320,3 +1320,37 @@ hr.divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; 
     background: var(--orange-g); border: 1px solid rgba(245,158,11,.2);
     border-radius: 8px; padding: 5px 10px;
 }
+
+/* ─── ACTIVITIES VIEW ────────────────────────── */
+.activities-section-label {
+    font-size:10px;font-weight:700;color:var(--textm);text-transform:uppercase;
+    letter-spacing:.1em;padding:4px 0 10px;
+}
+
+/* ─── EVENT CARDS ────────────────────────────── */
+.ev-card { border-left: 2px solid var(--violet); }
+.ev-tag { font-size:10px;font-weight:700;padding:2px 8px;border-radius:100px; }
+.ev-tag-assembly { background:rgba(56,189,248,.1);color:var(--blue);border:1px solid rgba(56,189,248,.2); }
+.ev-tag-leadership { background:rgba(251,191,36,.1);color:var(--gold);border:1px solid rgba(251,191,36,.2); }
+.chapter-label-badge { font-size:11px;font-weight:600;padding:3px 10px;border-radius:100px;background:rgba(167,139,250,.1);color:var(--purple);border:1px solid rgba(167,139,250,.25); }
+
+/* ─── ROLE BADGE IN SLOT ─────────────────────── */
+.slot-role-badge { font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(251,191,36,.15);color:var(--gold);margin-left:4px;white-space:nowrap; }
+
+/* ─── GIVE HOURS – REMOVE CHIP ───────────────── */
+.vol-chip-row { display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px; }
+.give-hrs-chip { display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:100px;background:rgba(56,189,248,.07);border:1px solid rgba(56,189,248,.18);font-size:12px;font-weight:600;transition:all .15s; }
+.give-hrs-chip.vol-excluded { background:rgba(248,113,113,.07);border-color:rgba(248,113,113,.25);color:var(--textm);text-decoration:line-through;opacity:.5; }
+.remove-vol-btn { background:none;border:none;color:var(--textm);cursor:pointer;font-size:13px;padding:0 2px;line-height:1; transition:color .15s; }
+.remove-vol-btn:hover { color:var(--red); }
+.give-hrs-chip.vol-excluded .remove-vol-btn { color:var(--textm); }
+
+/* ─── DIRECTOR VIEW TOGGLE ───────────────────── */
+.view-toggle-btn { font-size:11px;padding:5px 11px;border-radius:100px; }
+
+/* ─── MY CHAPTER ─────────────────────────────── */
+.chapter-rep-card { display:flex;align-items:center;gap:16px;padding:18px 22px;margin-bottom:18px; }
+
+/* ─── AUTH CODE LOGIN ────────────────────────── */
+.auth-link-btn { background:none;border:none;color:var(--blue);cursor:pointer;font-size:inherit;padding:0;text-decoration:underline; }
+.auth-role-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0; }

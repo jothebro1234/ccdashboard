@@ -21,7 +21,19 @@ const CONFIG = {
         doo:       'ccdoo2025',
         dop:       'ccdop2025',
         president: 'ccadmin2025',
+        cef:       'cccef2025',
+        vp:        'ccvp2025',
+        sec:       'ccsec2025',
+        tres:      'cctres2025',
+        cpo:       'cccpo2025',
+        hr:        'cchr2025',
+        mr:        'ccmr2025',
+        trial:     'cctrial2025',
     },
+
+    // ── Portal: New Sheet Names ─────────────────────────────────
+    CHAPTERS_SHEET:  'Chapters',
+    DIRECTORS_SHEET: 'Directors',
 
     // ── Portal: Auth ──────────────────────────────────────────────
     // 0-based column index in Volunteers sheet that holds the email address.
@@ -53,10 +65,19 @@ const CONFIG = {
     // ── Org Structure ─────────────────────────────────────────────
     PRESIDENT_NAME: 'Jumbo Jo',
     DIRECTORS: {
-        doc:       { name: 'Sourish Mehta, Chloe Koo, Megan Yao', title: 'Director of Curriculum', track: 'Curriculum'    },
-        doo:       { name: 'Jamie Song, Pragya Jain', title: 'Director of Operations',  track: 'Operations'   },
-        dop:       { name: 'Daniel Kim', title: 'Director of Media/Design',track: 'Media/Design' },
-        president: { name: 'Daniel Son', title: 'President',               track: 'All'          },
+        doc:       { name: 'Sourish Mehta, Chloe Koo, Megan Yao', title: 'Director of Curriculum',   track: 'Curriculum'    },
+        doo:       { name: 'Jamie Song, Pragya Jain',              title: 'Director of Operations',   track: 'Operations'   },
+        dop:       { name: 'Daniel Kim',                           title: 'Director of Media/Design', track: 'Media/Design' },
+        president: { name: 'Daniel Son',                           title: 'President',                track: 'All'          },
+        cef:       { name: '',                                     title: 'Chief Executive Fellow',   track: 'All'          },
+        vp:        { name: '',                                     title: 'Vice President',            track: 'All'          },
+        sec:       { name: '',                                     title: 'Secretary',                 track: 'All'          },
+        tres:      { name: '',                                     title: 'Treasurer',                 track: 'All'          },
+        cpo:       { name: '',                                     title: 'Chief People Officer',      track: 'All'          },
+        hr:        { name: '',                                     title: 'Human Resources',           track: 'All'          },
+        mr:        { name: '',                                     title: 'Member Relations',          track: 'All'          },
+        trial:     { name: '',                                     title: 'Trial Director',            track: 'All'          },
+        chapter_rep:{ name: '',                                    title: 'Chapter Representative',    track: 'All'          },
     },
 
     TRACKS: {
