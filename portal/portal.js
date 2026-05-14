@@ -723,7 +723,7 @@ function renderUserInfo() {
         <div class="sb-av">${avHTML(u.name||'?',u.avatar,34)}</div>
         <div style="min-width:0">
             <div class="sb-name">${esc(u.name||'Director')}</div>
-            <div class="sb-meta">${u.track?`${track.icon||''} ${u.track}`:(CONFIG.DIRECTORS[S.role]||{}).title||''} ${u.tier?(()=>{const t=CONFIG.TIERS[u.tier];return t?`· ${t.icon} ${t.name}`:''})():''}</div>
+            <div class="sb-meta">${u.track?`${track.icon||''} ${u.track}`:(CONFIG.DIRECTORS[S.role]||{}).title||''}</div>
         </div>`;
 }
 
@@ -830,7 +830,7 @@ function viewDashboard() {
         <div class="view-header">
             <div>
                 <div class="view-title">Welcome back, ${esc((u.name||'').split(' ')[0])} 👋</div>
-                <div class="view-subtitle">${u.tier?tierBadge(u.tier):''}</div>
+                <div class="view-subtitle"></div>
             </div>
             <div class="view-actions">${switchBtn}</div>
         </div>
@@ -840,7 +840,6 @@ function viewDashboard() {
                 <div class="dash-track-name">${esc(u.track)} Team</div>
                 <div class="dash-track-sub">${u.lead?'Team Lead · ':''}Curio Crate Volunteer</div>
             </div>
-            ${u.tier?tierBadge(u.tier):''}
         </div>`:''}
         <div class="card-grid card-grid-4 mb-20">
             <div class="stat-card">
@@ -876,14 +875,7 @@ function viewDashboard() {
                             <div class="dash-dir-title">${esc(dirInfo.title)}</div>
                             <div class="dash-dir-name">${esc(dirInfo.name)}</div>
                         </div>
-                    </div>`:''}
-                    <div class="dash-dir-row" style="${dirInfo?'margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)':''}">
-                        <div class="dash-dir-icon" style="background:var(--gold-g);color:var(--gold)">👑</div>
-                        <div>
-                            <div class="dash-dir-title">President</div>
-                            <div class="dash-dir-name">${esc((president||{}).name||CONFIG.PRESIDENT_NAME||'')}</div>
-                        </div>
-                    </div>
+                    </div>`:'<div class="muted text-small">No director assigned.</div>'}
                 </div>
             </div>
         </div>`;
