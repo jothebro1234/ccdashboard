@@ -1374,3 +1374,53 @@ hr.divider { border: none; border-top: 1.5px solid var(--border); margin: 16px 0
 .chap-combo-opt:hover { background:var(--blue-g);color:var(--text); }
 .chap-combo-opt.selected { color:var(--blue);font-weight:800;background:rgba(58,114,190,.10); }
 .chap-combo-none { color:var(--textm);cursor:default;font-style:italic; }
+
+/* ═══════════════════════════════════════════════════════════════
+   CALENDAR
+   ═══════════════════════════════════════════════════════════════ */
+.cal-loading { color: var(--textm); font-size: 13px; padding: 24px 0; }
+.cal-month-block { margin-bottom: 32px; }
+.cal-month-title {
+    font-size: 15px; font-weight: 800; color: var(--text);
+    text-transform: uppercase; letter-spacing: .08em;
+    margin-bottom: 12px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+.cal-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+}
+.cal-day-header {
+    text-align: center; font-size: 10px; font-weight: 800;
+    color: var(--textm); text-transform: uppercase; letter-spacing: .06em;
+    padding: 6px 0;
+}
+.cal-cell {
+    min-height: 72px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 8px; font-size: 12px;
+    transition: border-color .15s;
+}
+.cal-cell-empty { background: transparent; border-color: transparent; min-height: 72px; }
+.cal-cell.cal-today {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 1px var(--blue), inset 0 0 0 9999px rgba(56,189,248,.06);
+}
+.cal-cell.cal-has-notes { border-color: rgba(255,255,255,.2); }
+.cal-date-num {
+    font-size: 11px; font-weight: 800; color: var(--textm);
+    margin-bottom: 4px;
+}
+.cal-today .cal-date-num {
+    color: var(--blue); background: rgba(56,189,248,.15);
+    border-radius: 50%; width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+}
+.cal-note {
+    font-size: 10px; color: var(--text2); font-weight: 600;
+    background: rgba(56,189,248,.1); border-radius: 4px;
+    padding: 2px 5px; margin-top: 3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.4;
+}

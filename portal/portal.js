@@ -62,6 +62,12 @@ function deriveTrack(colF,colJ) {
     if(s.includes('media')||s.includes('design')||s.includes('content')||s.includes('publicity'))return'Media/Design';
     return'';
 }
+function combinedTrackLabel(u) {
+    const t=u.track||'';
+    const a=u.additionalTrack||'';
+    if(a&&a!==t)return`${t} + ${a}`;
+    return t;
+}
 function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 /* Returns today as YYYY-MM-DD in the *local* timezone — avoids UTC midnight parse issues */
 function localToday() {
@@ -266,6 +272,7 @@ async function loadVolunteerData(name) {
     S.data.directors=dirRows.slice(1).filter(r=>r[0]);
     S.data.allVolunteers=volRows.slice(1).filter(r=>r[0]).map(r=>({
         name:(r[0]||'').trim(),discord:(r[1]||'').trim(),school:(r[2]||'').trim(),
+        additionalTrack:deriveTrack('',r[18]||''),
     }));
     const lower=name.toLowerCase();
     let totalHours=0,curricCount=0,eventsCount=0;
@@ -329,6 +336,7 @@ async function loadDirectorData(track) {
         tier:(r[6]||'').trim()||'1',lead:(r[7]||'').trim(),
         onTimeRate:parseFloat(r[10])||null,lastContact:(r[11]||'').trim(),
         hours:0,curricCount:0,eventsCount:0,
+        additionalTrack:deriveTrack('',r[18]||''),
     })).filter(v=>v.name);
     const vm={};
     all.forEach(v=>{vm[v.name.toLowerCase()]=v;});
@@ -498,6 +506,7 @@ async function handleGoogleSignIn(credentialResponse) {
                 discord:(volRow[1]||'').trim(),school:(volRow[2]||'').trim(),
                 avatar:payload.picture||(volRow[3]||'').trim(),
                 track:deriveTrack(volRow[5],volRow[9]),
+                additionalTrack:deriveTrack('',volRow[18]||''),
                 tier:(volRow[6]||'').trim()||'1',
                 lead:(volRow[7]||'').trim(),
                 onTimeRate:parseFloat(volRow[10])||null,
@@ -729,13 +738,13 @@ function renderSidebar() {
     const role=S.role;
     let items=[];
     if(role==='volunteer'){
-        // Show "My Chapter" only if their school has a chapter rep
         const userSchool=(S.user?.school||'').toLowerCase().trim();
         const hasChapter=userSchool&&(S.data.chapters||[]).some(r=>(r[2]||'').trim().toLowerCase()===userSchool);
         items=[
             {id:'dashboard',  icon:'🏠',label:'Dashboard'},
             {id:'activities', icon:'📚',label:'Activities'},
             ...(hasChapter?[{id:'chapter',icon:'🏫',label:'My Chapter'}]:[]),
+            {id:'calendar',   icon:'📅',label:'Calendar'},
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     } else if(role==='chapter_rep'){
@@ -744,20 +753,27 @@ function renderSidebar() {
             {id:'activities', icon:'📚',label:'Activities'},
             {id:'chapter',    icon:'🏫',label:'My Chapter'},
             {id:'director',   icon:'⚙️',label:'Chapter Panel'},
+            {id:'calendar',   icon:'📅',label:'Calendar'},
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     } else {
         items=[
             {id:'dashboard',  icon:'🏠',label:'Overview'},
             {id:'director',   icon:'⚙️',label:'Director Panel'},
+            {id:'calendar',   icon:'📅',label:'Calendar'},
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     }
     const activeView=S.view||'dashboard';
-    nav.innerHTML=items.map(it=>`<button class="sb-item${activeView===it.id?' active':''}" data-view="${it.id}">
-        <span class="sb-icon">${it.icon}</span>
-        <span>${it.label}</span>
-    </button>`).join('');
+    const newAct=(role==='volunteer'||role==='chapter_rep')?getNewActivitiesCount():0;
+    nav.innerHTML=items.map(it=>{
+        const badge=it.id==='activities'&&newAct>0?`<span class="sb-notif-badge">${newAct}</span>`:'';
+        return`<button class="sb-item${activeView===it.id?' active':''}" data-view="${it.id}">
+            <span class="sb-icon">${it.icon}</span>
+            <span>${it.label}</span>
+            ${badge}
+        </button>`;
+    }).join('');
     nav.querySelectorAll('.sb-item').forEach(btn=>{
         btn.onclick=()=>{navigate(btn.dataset.view);closeMobileSidebar();};
     });
@@ -795,7 +811,7 @@ function renderUserInfo() {
         <div class="sb-av">${avHTML(u.name||'?',u.avatar,34)}</div>
         <div style="min-width:0;flex:1">
             <div class="sb-name">${esc(u.name||'Director')}</div>
-            <div class="sb-meta">${u.track?`${track.icon||''} ${u.track}`:(CONFIG.DIRECTORS[S.role]||{}).title||''}</div>
+            <div class="sb-meta">${u.track?`${track.icon||''} ${combinedTrackLabel(u)}`:(CONFIG.DIRECTORS[S.role]||{}).title||''}</div>
         </div>
         <button class="sb-logout-btn" title="Sign out" onclick="logout()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15">
@@ -822,6 +838,7 @@ function navigate(view,sub) {
         case 'leaderboard': viewLeaderboard();break;
         case 'director':    viewDirectorPanel(sub||'roster');break;
         case 'chapter':     viewMyChapter();break;
+        case 'calendar':    viewCalendar();break;
         default:viewDashboard();
     }
     window.scrollTo(0,0);
@@ -1005,6 +1022,13 @@ function viewDashboard() {
     const directorRole=(CONFIG.TRACKS[u.track]||{}).role;
     const dirInfo=directorRole?CONFIG.DIRECTORS[directorRole]:null;
     const president=CONFIG.DIRECTORS['president'];
+    // Collect director entries for primary + additional track (deduplicated)
+    const _seenDirRoles=new Set();
+    const _allDirEntries=[];
+    [u.track,u.additionalTrack].filter(t=>t&&CONFIG.TRACKS[t]).forEach(t=>{
+        const r2=(CONFIG.TRACKS[t]||{}).role;
+        if(r2&&!_seenDirRoles.has(r2)){_seenDirRoles.add(r2);const d=CONFIG.DIRECTORS[r2];if(d)_allDirEntries.push({dirInfo:d,trackCfg:CONFIG.TRACKS[t]||{}});}
+    });
     const trackColor=(track.color)||'var(--blue)';
     const trackColorG=(track.glow)||'rgba(56,189,248,.12)';
 
@@ -1017,12 +1041,15 @@ function viewDashboard() {
                 <div class="view-title">Welcome back, ${esc((u.name||'').split(' ')[0])} 👋</div>
                 <div class="view-subtitle"></div>
             </div>
-            <div class="view-actions">${switchBtn}</div>
+            <div class="view-actions">
+                ${switchBtn}
+                <button class="btn btn-ghost btn-sm" onclick="refreshDashboard()" title="Refresh data">🔄 Refresh</button>
+            </div>
         </div>
         ${u.track?`<div class="dash-track-banner" style="--track-color:${trackColor};--track-glow:${trackColorG}">
             <div class="dash-track-icon">${track.icon||'🏷'}</div>
             <div class="dash-track-info">
-                <div class="dash-track-name">${esc(u.track)} Team</div>
+                <div class="dash-track-name">${esc(combinedTrackLabel(u))} Team</div>
                 <div class="dash-track-sub">${u.lead?'Team Lead · ':''}Curio Crate Volunteer</div>
             </div>
         </div>`:''}
@@ -1069,23 +1096,27 @@ function viewDashboard() {
             <div>
                 <div class="section-title">YOUR DIRECTORS</div>
                 ${(()=>{
-                    if(!dirInfo)return'<div class="card dash-directors-card"><div class="muted text-small">No director assigned.</div></div>';
-                    const dirNames=(dirInfo.name||'').split(',').map(n=>n.trim()).filter(Boolean);
+                    if(!_allDirEntries.length)return'<div class="card dash-directors-card"><div class="muted text-small">No director assigned.</div></div>';
                     const volDiscord={};
-                    (S.data.volunteers||[]).forEach(r=>{if(r[0])volDiscord[r[0].trim().toLowerCase()]=r[1]||'';});
-                    const cards=dirNames.map(n=>{
-                        const discord=volDiscord[n.toLowerCase()]||'';
-                        return`<div class="card dash-directors-card">
-                            <div class="dash-dir-row">
-                                <div class="dash-dir-icon" style="background:${trackColorG};color:${trackColor}">${track.icon||'👤'}</div>
-                                <div>
-                                    <div class="dash-dir-title">${esc(dirInfo.title)}</div>
-                                    <div class="dash-dir-name">${esc(n)}</div>
-                                    ${discord?`<div class="dash-dir-discord">Discord: @${esc(discord)}</div>`:''}
+                    (S.data.allVolunteers||[]).forEach(v=>{if(v.name)volDiscord[v.name.toLowerCase()]=v.discord||'';});
+                    const cards=_allDirEntries.flatMap(({dirInfo:di,trackCfg:tc})=>{
+                        const tColor=tc.color||trackColor;
+                        const tGlow=tc.glow||trackColorG;
+                        return(di.name||'').split(',').map(n=>{
+                            n=n.trim();if(!n)return'';
+                            const discord=volDiscord[n.toLowerCase()]||'';
+                            return`<div class="card dash-directors-card">
+                                <div class="dash-dir-row">
+                                    <div class="dash-dir-icon" style="background:${tGlow};color:${tColor}">${tc.icon||'👤'}</div>
+                                    <div>
+                                        <div class="dash-dir-title">${esc(di.title)}</div>
+                                        <div class="dash-dir-name">${esc(n)}</div>
+                                        ${discord?`<div class="dash-dir-discord">Discord: @${esc(discord)}</div>`:''}
+                                    </div>
                                 </div>
-                            </div>
-                        </div>`;
-                    }).join('');
+                            </div>`;
+                        });
+                    }).filter(Boolean).join('');
                     return`<div style="display:flex;flex-direction:column;gap:8px">${cards}</div>`;
                 })()}
             </div>
@@ -2224,6 +2255,7 @@ function closeMobileSidebar() {
    VIEW: ACTIVITIES (combined curriculum + upcoming events)
    ═══════════════════════════════════════════════════════════════ */
 function viewActivities() {
+    markActivitiesSeen();
     const root=document.getElementById('view-root');
     const assignments=S.data.curriculum||[];
     const upcomingEvs=S.data.upcomingEvents||[];
@@ -3071,6 +3103,121 @@ function initChapCombo(prefix, currentVal, isDisabled) {
     trigger.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openPanel();}if(e.key==='Escape')closePanel();});
     search.addEventListener('input',()=>renderOpts(search.value));
     search.addEventListener('click',e=>e.stopPropagation());
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ACTIVITY NOTIFICATION HELPERS
+   ═══════════════════════════════════════════════════════════════ */
+function _actSeenKey(){return'cc_seen_act_'+((S.user||{}).email||S.role||'anon');}
+function getNewActivitiesCount(){
+    const curr=(S.data.curriculum||[]).length+(S.data.upcomingEvents||[]).length;
+    const seen=parseInt(localStorage.getItem(_actSeenKey())||'0',10);
+    return Math.max(0,curr-seen);
+}
+function markActivitiesSeen(){
+    const curr=(S.data.curriculum||[]).length+(S.data.upcomingEvents||[]).length;
+    localStorage.setItem(_actSeenKey(),String(curr));
+    document.querySelectorAll('.sb-item[data-view="activities"] .sb-notif-badge').forEach(b=>b.remove());
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REFRESH DASHBOARD
+   ═══════════════════════════════════════════════════════════════ */
+async function refreshDashboard(){
+    showLoading();
+    try{
+        if(S.role==='volunteer'){
+            await loadVolunteerData(S.user.name);
+        } else {
+            await loadDirectorData(getDirTrack(S.role));
+        }
+        hideLoading();
+        renderSidebar();
+        navigate('dashboard');
+        toast('Dashboard refreshed');
+    }catch(e){hideLoading();toast(e.message,'error');}
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VIEW: CALENDAR
+   ═══════════════════════════════════════════════════════════════ */
+async function viewCalendar(){
+    const root=document.getElementById('view-root');
+    root.innerHTML=`<div class="view-header"><div><div class="view-title">📅 Calendar</div></div></div><div class="cal-loading">Loading calendar…</div>`;
+    let rows=[];
+    try{rows=await fetchSheet(CONFIG.CALENDAR_SHEET||'Calandar');}
+    catch(e){root.innerHTML+='<div class="card"><p class="muted">Could not load calendar: '+esc(e.message)+'</p></div>';return;}
+
+    // Parse rows: row 0 is header, rest are [Date, Notes]
+    const entries=[];
+    rows.slice(1).forEach(r=>{
+        const raw=(r[0]||'').trim();if(!raw)return;
+        // Accept YYYY-MM-DD or M/D/YYYY or MM/DD/YYYY
+        let d=null;
+        if(/^\d{4}-\d{2}-\d{2}$/.test(raw)){d=new Date(raw+'T00:00:00');}
+        else{const p=new Date(raw);if(!isNaN(p))d=p;}
+        if(!d||isNaN(d))return;
+        entries.push({date:d,notes:(r[1]||'').trim()});
+    });
+
+    if(!entries.length){
+        root.innerHTML=root.innerHTML.replace('<div class="cal-loading">Loading calendar…</div>','');
+        root.innerHTML+=`<div class="card"><p class="muted text-center">No calendar entries yet. Add rows to the <strong>Calandar</strong> sheet: Date (YYYY-MM-DD) in column A, Notes in column B.</p></div>`;
+        return;
+    }
+
+    // Group by year-month
+    const months={};
+    entries.forEach(e=>{
+        const key=e.date.getFullYear()+'-'+String(e.date.getMonth()+1).padStart(2,'0');
+        if(!months[key])months[key]={year:e.date.getFullYear(),month:e.date.getMonth(),days:{}};
+        months[key].days[e.date.getDate()]=(months[key].days[e.date.getDate()]||[]);
+        months[key].days[e.date.getDate()].push(e.notes);
+    });
+
+    const MONTH_NAMES=['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const today=new Date();
+
+    let html=`<div class="view-header"><div><div class="view-title">📅 Calendar</div><div class="view-subtitle">Curio Crate schedule</div></div></div>`;
+
+    Object.keys(months).sort().forEach(key=>{
+        const {year,month,days}=months[key];
+        const firstDay=new Date(year,month,1).getDay(); // 0=Sun
+        const totalDays=new Date(year,month+1,0).getDate();
+
+        let cells=[];
+        // leading empty cells
+        for(let i=0;i<firstDay;i++)cells.push('');
+        for(let d=1;d<=totalDays;d++){
+            const noteList=(days[d]||[]).filter(Boolean);
+            const isToday=today.getFullYear()===year&&today.getMonth()===month&&today.getDate()===d;
+            cells.push({d,notes:noteList,today:isToday});
+        }
+        // pad to full weeks
+        while(cells.length%7!==0)cells.push('');
+
+        const rows2=[];
+        for(let i=0;i<cells.length;i+=7)rows2.push(cells.slice(i,i+7));
+
+        html+=`<div class="cal-month-block">
+            <div class="cal-month-title">${MONTH_NAMES[month]} ${year}</div>
+            <div class="cal-grid">
+                ${DAY_NAMES.map(d=>`<div class="cal-day-header">${d}</div>`).join('')}
+                ${rows2.map(row=>row.map(cell=>{
+                    if(cell==='')return'<div class="cal-cell cal-cell-empty"></div>';
+                    const {d,notes,today:isToday}=cell;
+                    const noteHtml=notes.map(n=>`<div class="cal-note">${esc(n)}</div>`).join('');
+                    return`<div class="cal-cell${isToday?' cal-today':''}${notes.length?' cal-has-notes':''}">
+                        <div class="cal-date-num">${d}</div>
+                        ${noteHtml}
+                    </div>`;
+                }).join('')).join('')}
+            </div>
+        </div>`;
+    });
+
+    root.innerHTML=html;
 }
 
 /* ═══════════════════════════════════════════════════════════════
