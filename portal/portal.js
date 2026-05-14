@@ -567,16 +567,15 @@ function showLanding() {
 function showCodeLoginMenu() {
     const allRoles=[
         {role:'president',icon:'👑',label:'President'},
-        {role:'cef',icon:'🌟',label:'Chief Executive Fellow'},
         {role:'vp',icon:'🏅',label:'Vice President'},
         {role:'sec',icon:'📝',label:'Secretary'},
         {role:'tres',icon:'💰',label:'Treasurer'},
-        {role:'cpo',icon:'🤝',label:'Chief People Officer'},
+        {role:'cpo',icon:'🤝',label:'Chief Product Officer'},
         {role:'doc',icon:'📚',label:'Director of Curriculum'},
         {role:'doo',icon:'🎓',label:'Director of Operations'},
-        {role:'dop',icon:'📣',label:'Director of Media/Design'},
+        {role:'dop',icon:'📣',label:'Director of Publicity'},
         {role:'hr',icon:'👥',label:'Human Resources'},
-        {role:'mr',icon:'📋',label:'Member Relations'},
+        {role:'mr',icon:'📋',label:'MR'},
         {role:'trial',icon:'🔍',label:'Trial (Read-only)'},
     ];
     document.getElementById('auth-title').textContent='Staff Login';
@@ -608,10 +607,10 @@ function showNotRegistered(email,picture) {
 
 function showRoleAuth(role) {
     const labels={
-        doc:'Director of Curriculum',doo:'Director of Operations',dop:'Director of Media/Design',
+        doc:'Director of Curriculum',doo:'Director of Operations',dop:'Director of Publicity',
         president:'President',cef:'Chief Executive Fellow',vp:'Vice President',
-        sec:'Secretary',tres:'Treasurer',cpo:'Chief People Officer',
-        hr:'Human Resources',mr:'Member Relations',trial:'Trial Director',
+        sec:'Secretary',tres:'Treasurer',cpo:'Chief Product Officer',
+        hr:'Human Resources',mr:'MR',trial:'Trial Director',
     };
     const icons={
         doc:'📚',doo:'🎓',dop:'📣',president:'👑',cef:'🌟',vp:'🏅',
@@ -1069,15 +1068,26 @@ function viewDashboard() {
             </div>
             <div>
                 <div class="section-title">YOUR DIRECTORS</div>
-                <div class="card dash-directors-card">
-                    ${dirInfo?`<div class="dash-dir-row">
-                        <div class="dash-dir-icon" style="background:${trackColorG};color:${trackColor}">${track.icon||'👤'}</div>
-                        <div>
-                            <div class="dash-dir-title">${esc(dirInfo.title)}</div>
-                            <div class="dash-dir-name">${esc(dirInfo.name)}</div>
-                        </div>
-                    </div>`:'<div class="muted text-small">No director assigned.</div>'}
-                </div>
+                ${(()=>{
+                    if(!dirInfo)return'<div class="card dash-directors-card"><div class="muted text-small">No director assigned.</div></div>';
+                    const dirNames=(dirInfo.name||'').split(',').map(n=>n.trim()).filter(Boolean);
+                    const volDiscord={};
+                    (S.data.volunteers||[]).forEach(r=>{if(r[0])volDiscord[r[0].trim().toLowerCase()]=r[1]||'';});
+                    const cards=dirNames.map(n=>{
+                        const discord=volDiscord[n.toLowerCase()]||'';
+                        return`<div class="card dash-directors-card">
+                            <div class="dash-dir-row">
+                                <div class="dash-dir-icon" style="background:${trackColorG};color:${trackColor}">${track.icon||'👤'}</div>
+                                <div>
+                                    <div class="dash-dir-title">${esc(dirInfo.title)}</div>
+                                    <div class="dash-dir-name">${esc(n)}</div>
+                                    ${discord?`<div class="dash-dir-discord">Discord: @${esc(discord)}</div>`:''}
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('');
+                    return`<div style="display:flex;flex-direction:column;gap:8px">${cards}</div>`;
+                })()}
             </div>
         </div>`;
     // Clicking a registration card opens the detail modal
