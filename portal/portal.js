@@ -2174,9 +2174,9 @@ function hideLoading() {
         _hideTimer=setTimeout(()=>{el.classList.add('pl-init');_hideTimer=null;},900);
     };
     if(!_initialHidden){
-        // First login: guarantee at least 5.5s so all animations fully play
+        // First login: short minimum so animations feel snappy
         const elapsed=Date.now()-_loadStart;
-        const delay=Math.max(0,5500-elapsed);
+        const delay=Math.max(0,1200-elapsed);
         _initialHidden=true;
         _hideTimer=setTimeout(doHide,delay);
     } else {
