@@ -24,13 +24,15 @@
 
 <!-- AUTH GATE (shown until authenticated) -->
 <div class="auth-gate" id="auth-gate">
-    <div class="auth-card">
+    <div class="auth-card-wrap">
         <img src="../mascot1.png" alt="Curie the Capybara" class="auth-mascot" onerror="this.style.display='none'">
-        <img src="../cclogo.png" alt="Curio Crate" class="auth-logo" onerror="this.style.display='none'">
-        <div class="auth-org">CURIO CRATE</div>
-        <div class="auth-title" id="auth-title">Volunteer Portal</div>
-        <div id="auth-body">
-            <!-- Populated by portal.js based on ?vol= or ?role= param -->
+        <div class="auth-card">
+            <img src="../cclogo.png" alt="" class="auth-logo-wm" aria-hidden="true" onerror="this.style.display='none'">
+            <div class="auth-org">CURIO CRATE</div>
+            <div class="auth-title" id="auth-title">Volunteer Portal</div>
+            <div id="auth-body">
+                <!-- Populated by portal.js based on ?vol= or ?role= param -->
+            </div>
         </div>
     </div>
 </div>
