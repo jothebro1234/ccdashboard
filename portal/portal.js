@@ -843,6 +843,15 @@ function tierBadge(tier) {
     return `<span class="tier-badge tier-${cls}">${t.icon} ${t.name}</span>`;
 }
 
+function mascotEmpty(title, sub='', btn='') {
+    return `<div class="empty-state">
+        <img src="../mascot1.png" class="empty-mascot" alt="Curie">
+        <div class="empty-title">${title}</div>
+        ${sub?`<p class="muted text-small">${sub}</p>`:''}
+        ${btn}
+    </div>`;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    HOURS GOAL
    ═══════════════════════════════════════════════════════════════ */
@@ -1056,7 +1065,7 @@ function viewDashboard() {
                 <div class="section-title">YOUR ACTIVE REGISTRATIONS</div>
                 ${allRegs.length
                     ? regCards+'<button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate(\'activities\')">View all activities →</button>'
-                    : '<div class="card"><div class="muted text-small">No active registrations yet.</div><button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'activities\')">Browse Activities →</button></div>'}
+                    : mascotEmpty('No registrations yet','Sign up for an assignment or event to get started!','<button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'activities\')">Browse Activities →</button>')}
             </div>
             <div>
                 <div class="section-title">YOUR DIRECTORS</div>
@@ -1198,7 +1207,7 @@ function renderCurrList(filter) {
     if(filter==='all'){
         listEl.innerHTML=filtered.length
             ?filtered.map(r=>currSimpleRowHTML(r)).join('')
-            :`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No assignments yet</div></div>`;
+            :mascotEmpty('No assignments yet','Check back soon — new assignments will appear here.');
         // simple rows have no interactive buttons so no attachCurrEvents needed
         listEl.querySelectorAll('.curr-simple-row').forEach(row=>{
             row.addEventListener('click',()=>{
@@ -1210,7 +1219,7 @@ function renderCurrList(filter) {
         return;
     }
     if(!filtered.length){
-        listEl.innerHTML=`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No assignments here</div></div>`;
+        listEl.innerHTML=mascotEmpty('No assignments here','Nothing in this category yet.');
         return;
     }
     listEl.innerHTML=filtered.map(r=>currCardHTML(r,lower)).join('');
@@ -1940,7 +1949,7 @@ function showEditAssignment(r) {
 /* ─── GIVE HOURS (DOC) ──────────────────────────────────────── */
 function dirGiveHoursHTML() {
     const assignments=[...(S.data.curriculum||[])].reverse(); // newest first
-    if(!assignments.length)return`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No assignments yet</div><p class="muted text-small">Post assignments first, then give hours after volunteers complete the work.</p></div>`;
+    if(!assignments.length)return mascotEmpty('No assignments yet','Post assignments first, then give hours after volunteers complete the work.');
     const allVols=S.data.allVolunteers||[];
     const discordMap={};
     allVols.forEach(v=>{discordMap[v.name.toLowerCase()]=v.discord;});
@@ -2256,7 +2265,7 @@ function renderActivitiesList(filter) {
     if(filter==='all'){
         const assignRows=assignments.map(r=>currSimpleRowHTML(r)).join('');
         const evRows=upcomingEvs.map(r=>evSimpleRowHTML(r)).join('');
-        if(!assignRows&&!evRows){listEl.innerHTML=`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No activities yet</div></div>`;return;}
+        if(!assignRows&&!evRows){listEl.innerHTML=mascotEmpty('No activities yet','New assignments and events will show up here.');return;}
         listEl.innerHTML=(assignRows?`<div class="activities-section-label">Curriculum Assignments</div>${assignRows}`:'')
             +(evRows?`<div class="activities-section-label" style="margin-top:16px">Upcoming Events</div>${evRows}`:'');
         listEl.querySelectorAll('.curr-simple-row').forEach(row=>{
@@ -2296,7 +2305,7 @@ function renderActivitiesList(filter) {
     }
 
     if(!filteredAssign.length&&!filteredEvs.length){
-        listEl.innerHTML=`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">Nothing here yet</div></div>`;
+        listEl.innerHTML=mascotEmpty('Nothing here yet','Curie\'s looking too — check back soon!');
         return;
     }
 
@@ -2800,7 +2809,7 @@ function showEditEvent(r) {
    ═══════════════════════════════════════════════════════════════ */
 function dirGiveEventHoursHTML() {
     const events=(S.data.upcomingEvents||[]).slice().reverse();
-    if(!events.length)return`<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No upcoming events yet</div><p class="muted text-small">Post upcoming events first, then give hours after they happen.</p></div>`;
+    if(!events.length)return mascotEmpty('No upcoming events yet','Post upcoming events first, then give hours after they happen.');
     const allVols=S.data.allVolunteers||[];
     const discordMap={};
     allVols.forEach(v=>{discordMap[v.name.toLowerCase()]=v.discord;});
@@ -2844,7 +2853,7 @@ function dirGiveEventHoursHTML() {
 
     return `<div class="card mb-16" style="border-color:rgba(251,191,36,.2)">
         <div class="muted text-small" style="line-height:1.7"><strong style="color:var(--gold)">How Give Event Hours works:</strong> Click ✕ to mark no-shows. Then click "Give Event Hours" to credit attending volunteers. Only events that have passed or are closed for registration are shown.</div>
-    </div>${cards||'<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-title">No completed events yet</div><p class="muted text-small">Events appear here after the event date passes or registration closes.</p></div>'}`;
+    </div>${cards||mascotEmpty('No completed events yet','Events appear here after the event date passes or registration closes.')}`;
 }
 
 function attachGiveEventHoursEvents() {
@@ -2895,11 +2904,7 @@ function viewMyChapter() {
                 </div>
             </div>
             <div class="card">
-                <div class="empty-state" style="padding:32px 0">
-                    <div class="empty-icon">🏫</div>
-                    <div class="empty-title">No Chapter Set Up Yet</div>
-                    <p class="muted text-small">No chapter representative has been assigned for your school (${esc(S.user?.school||'unknown')}). Contact your DOO or President to get a chapter rep assigned.</p>
-                </div>
+                ${mascotEmpty('No Chapter Set Up Yet',`No chapter rep has been assigned for ${esc(S.user?.school||'your school')} yet. Contact your DOO or President to get one assigned.`)}
             </div>`;
         return;
     }
