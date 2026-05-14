@@ -397,7 +397,58 @@ function parseURLParams() {
     return{role:p.get('role')};
 }
 
+const SESSION_KEY='cc_portal_session';
+
+function saveSession() {
+    try {
+        localStorage.setItem(SESSION_KEY,JSON.stringify({
+            role:S.role,dirRole:S.dirRole,user:S.user,
+            volUser:S.volUser||null,chapData:S.chapData||null,
+        }));
+    } catch(_) {}
+}
+
+async function restoreSession(sess) {
+    S.role=sess.role;
+    S.dirRole=sess.dirRole||null;
+    S.user=sess.user;
+    S.volUser=sess.volUser||null;
+    S.chapData=sess.chapData||null;
+    S._dirUser=sess.dirRole?sess.user:null;
+    if(S.role==='volunteer'){
+        await loadVolunteerData(S.user.name);
+        launchPortal();
+    } else {
+        await launchDirectorPortal(S.role);
+    }
+}
+
+function logout() {
+    try{localStorage.removeItem(SESSION_KEY);}catch(_){}
+    if(_pollTimer){clearInterval(_pollTimer);_pollTimer=null;}
+    // Reset state
+    S.role=null;S.dirRole=null;S.user=null;S.volUser=null;
+    S._dirUser=null;S.chapData=null;S.view=null;S.subTab=null;
+    S.data={};S.lbCat='hours';S.lbPrevRanks={};
+    document.getElementById('portal-shell').style.display='none';
+    document.getElementById('auth-gate').style.display='';
+    showLanding();
+}
+
 async function initAuth() {
+    const saved=localStorage.getItem(SESSION_KEY);
+    if(saved){
+        try{
+            const sess=JSON.parse(saved);
+            if(sess&&sess.role&&sess.user){
+                showLoading();
+                await restoreSession(sess);
+                return;
+            }
+        }catch(_){
+            localStorage.removeItem(SESSION_KEY);
+        }
+    }
     const{role}=parseURLParams();
     if(role){showRoleAuth(role);}else{showLanding();}
 }
@@ -611,6 +662,7 @@ function showAuthError(msg) {
    PORTAL LAUNCH
    ═══════════════════════════════════════════════════════════════ */
 function launchPortal() {
+    saveSession();
     document.getElementById('auth-gate').style.display='none';
     document.getElementById('portal-shell').style.display='flex';
     hideLoading();
@@ -630,6 +682,7 @@ async function launchDirectorPortal(role) {
         const volName=S.volUser?.name||(role==='chapter_rep'?S.chapData?.name:null);
         if(volName)loads.push(loadVolunteerData(volName));
         await Promise.all(loads);
+        saveSession();
         document.getElementById('auth-gate').style.display='none';
         document.getElementById('portal-shell').style.display='flex';
         hideLoading();
@@ -741,10 +794,17 @@ function renderUserInfo() {
     const track=u.track?(CONFIG.TRACKS[u.track]||{}):{};
     el.innerHTML=`
         <div class="sb-av">${avHTML(u.name||'?',u.avatar,34)}</div>
-        <div style="min-width:0">
+        <div style="min-width:0;flex:1">
             <div class="sb-name">${esc(u.name||'Director')}</div>
             <div class="sb-meta">${u.track?`${track.icon||''} ${u.track}`:(CONFIG.DIRECTORS[S.role]||{}).title||''}</div>
-        </div>`;
+        </div>
+        <button class="sb-logout-btn" title="Sign out" onclick="logout()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+        </button>`;
 }
 
 /* ═══════════════════════════════════════════════════════════════

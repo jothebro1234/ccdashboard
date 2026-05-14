@@ -278,6 +278,13 @@ body {
 .sb-av img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .sb-name { font-weight: 800; font-size: 13px; color: var(--sb-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-meta { font-size: 11px; color: var(--sb-text2); margin-top: 1px; font-weight: 600; }
+.sb-logout-btn {
+    flex-shrink: 0; background: none; border: none; cursor: pointer;
+    color: var(--sb-text2); padding: 6px 7px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, color .15s;
+}
+.sb-logout-btn:hover { background: rgba(255,60,60,.18); color: #ff8080; }
 .sb-lb-link {
     display: flex; align-items: center; gap: 6px;
     margin: 0 14px 16px; padding: 10px 14px;
