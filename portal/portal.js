@@ -664,7 +664,6 @@ function renderSidebar() {
             {id:'dashboard',  icon:'🏠',label:'Dashboard'},
             {id:'activities', icon:'📚',label:'Activities'},
             ...(hasChapter?[{id:'chapter',icon:'🏫',label:'My Chapter'}]:[]),
-            {id:'progress',   icon:'📈',label:'My Progress'},
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     } else if(role==='chapter_rep'){
@@ -673,7 +672,6 @@ function renderSidebar() {
             {id:'activities', icon:'📚',label:'Activities'},
             {id:'chapter',    icon:'🏫',label:'My Chapter'},
             {id:'director',   icon:'⚙️',label:'Chapter Panel'},
-            {id:'progress',   icon:'📈',label:'My Progress'},
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     } else {
@@ -713,7 +711,7 @@ function initSVG(name,size) {
     const fs=Math.round(size*.38);
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
         <rect width="${size}" height="${size}" rx="${size/2}" fill="${color}1a"/>
-        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" fill="${color}" font-family="Space Grotesk,sans-serif" font-weight="700" font-size="${fs}">${inits}</text>
+        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" fill="${color}" font-family="Nunito,sans-serif" font-weight="800" font-size="${fs}">${inits}</text>
     </svg>`;
 }
 
