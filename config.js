@@ -45,7 +45,7 @@ const CONFIG = {
     //   A=Name  B=Discord  C=School  D=Avatar  E=Email
     //   F=Track  G=Tier  H=Lead  I=CyclesCompleted
     //   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours
-    CALENDAR_SHEET:    'Calandar',     // Monthly calendar (Date | Notes)
+    CALENDAR_SHEET:    'Calendar',     // Monthly calendar (Date | Notes)
     TASKS_SHEET:       'Tasks',        // Task assignments
     SESSIONS_SHEET:    'Sessions',     // In-person sessions (Operations)
     DEBRIEFS_SHEET:    'SessionDebriefs',

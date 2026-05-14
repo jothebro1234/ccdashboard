@@ -3145,7 +3145,7 @@ async function viewCalendar(){
     const root=document.getElementById('view-root');
     root.innerHTML=`<div class="view-header"><div><div class="view-title">📅 Calendar</div></div></div><div class="cal-loading">Loading calendar…</div>`;
     let rows=[];
-    try{rows=await fetchSheet(CONFIG.CALENDAR_SHEET||'Calandar');}
+    try{rows=await fetchSheet(CONFIG.CALENDAR_SHEET||'Calendar');}
     catch(e){root.innerHTML+='<div class="card"><p class="muted">Could not load calendar: '+esc(e.message)+'</p></div>';return;}
 
     // Parse rows: row 0 is header, rest are [Date, Notes]
@@ -3162,7 +3162,7 @@ async function viewCalendar(){
 
     if(!entries.length){
         root.innerHTML=root.innerHTML.replace('<div class="cal-loading">Loading calendar…</div>','');
-        root.innerHTML+=`<div class="card"><p class="muted text-center">No calendar entries yet. Add rows to the <strong>Calandar</strong> sheet: Date (YYYY-MM-DD) in column A, Notes in column B.</p></div>`;
+        root.innerHTML+=`<div class="card"><p class="muted text-center">No calendar entries yet. Add rows to the <strong>Calendar</strong> sheet: Date (YYYY-MM-DD) in column A, Notes in column B.</p></div>`;
         return;
     }
 
