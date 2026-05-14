@@ -278,6 +278,26 @@ async function loadVolunteerData(name) {
         if(contribs.includes(lower)){totalHours+=parseFloat(r[2])||0;curricCount++;}
     });
     S.data.myStats={totalHours:round1(totalHours),curricCount,eventsCount};
+
+    // Build org-wide hours map for ranking
+    const allHoursMap={};
+    volRows.slice(1).forEach(r=>{const n=(r[0]||'').trim();if(n)allHoursMap[n.toLowerCase()]={name:n,school:(r[2]||'').trim(),hours:0};});
+    allEvRows.forEach(r=>{const hrs=parseFloat(r[2])||0;(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean).forEach(n=>{const k=n.toLowerCase();if(allHoursMap[k])allHoursMap[k].hours+=hrs;});});
+    S.data.curriculum.forEach(r=>{const hrs=parseFloat(r[2])||0;(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean).forEach(n=>{const k=n.toLowerCase();if(allHoursMap[k])allHoursMap[k].hours+=hrs;});});
+    const sortedByHours=Object.values(allHoursMap).sort((a,b)=>b.hours-a.hours);
+    const mySchool=(volRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===lower)||[])[2]||'';
+    const orgIdx=sortedByHours.findIndex(v=>v.name.toLowerCase()===lower);
+    const chapVols=sortedByHours.filter(v=>v.school&&v.school===mySchool);
+    const chapIdx=chapVols.findIndex(v=>v.name.toLowerCase()===lower);
+    S.data.orgRank=orgIdx>=0?orgIdx+1:null;
+    S.data.orgTotal=sortedByHours.length;
+    S.data.chapRank=(mySchool&&chapIdx>=0)?chapIdx+1:null;
+    S.data.chapTotal=chapVols.length;
+
+    // Load hours goal from Volunteers sheet column N (index 13)
+    const myVolRow=volRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===lower);
+    S.data.hoursGoal=myVolRow?(parseFloat(myVolRow[13])||null):null;
+
     S.data.myRegistrations=S.data.curriculum.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
@@ -764,6 +784,93 @@ function tierBadge(tier) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   HOURS GOAL
+   ═══════════════════════════════════════════════════════════════ */
+const HOUR_AWARD_LIST=[
+    {hrs:20, icon:'🏅', label:'Eligible for Hours Award'},
+    {hrs:50, icon:'🎖', label:'Committed Volunteer Award'},
+    {hrs:100,icon:'🥇', label:'Gold Hours Award'},
+    {hrs:150,icon:'💎', label:'Platinum Hours Award'},
+];
+
+function showHoursGoalModal() {
+    const current=S.data.myStats?.totalHours||0;
+    const existing=S.data.hoursGoal||50;
+    const html=`
+    <div class="modal-header">
+        <div class="modal-title">🎯 Set Your Hours Goal</div>
+        <button class="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+        <p style="color:var(--text2);font-size:14px;margin:0 0 20px">You have <strong>${current} hrs</strong> so far. Pick a goal and we'll show your progress on the dashboard.</p>
+        <div class="goal-slider-wrap">
+            <div class="goal-val-display" id="goal-val-display">${existing} hrs</div>
+            <input type="range" class="goal-slider" id="goal-slider" min="1" max="300" step="1" value="${existing}">
+            <div class="goal-slider-labels"><span>1 hr</span><span>150 hrs</span><span>300 hrs</span></div>
+        </div>
+        <div class="goal-awards-grid" id="goal-awards-grid">
+            ${HOUR_AWARD_LIST.map(a=>`<div class="goal-award-item ${current>=a.hrs?'goal-award-earned':''}" data-hrs="${a.hrs}">
+                <div class="goal-award-icon">${a.icon}</div>
+                <div class="goal-award-label">${a.label}</div>
+                <div class="goal-award-hrs">${a.hrs} hrs</div>
+            </div>`).join('')}
+        </div>
+        <div id="goal-milestone-hint" class="goal-milestone-hint"></div>
+        <div style="display:flex;gap:10px;margin-top:20px">
+            <button class="btn btn-primary" style="flex:1" id="goal-save-btn">Save Goal</button>
+            ${S.data.hoursGoal?`<button class="btn btn-ghost" id="goal-clear-btn">Clear</button>`:''}
+        </div>
+        <div class="form-err" id="goal-err"></div>
+    </div>`;
+    const close=openModal(html);
+    const slider=document.getElementById('goal-slider');
+    const display=document.getElementById('goal-val-display');
+    const updateUI=(val)=>{
+        display.textContent=val+' hrs';
+        const next=HOUR_AWARD_LIST.find(a=>a.hrs>current);
+        const hint=document.getElementById('goal-milestone-hint');
+        if(hint){
+            const selected=HOUR_AWARD_LIST.slice().reverse().find(a=>a.hrs<=val);
+            if(val>=150){hint.textContent='💎 This goal earns you the Platinum Hours Award!';}
+            else if(val>=100){hint.textContent='🥇 This goal earns you the Gold Hours Award!';}
+            else if(val>=50){hint.textContent='🎖 This goal earns you the Committed Volunteer Award!';}
+            else if(val>=20){hint.textContent='🏅 This goal earns you the Eligible for Hours Award!';}
+            else{hint.textContent='Set a goal of 20+ hrs to be eligible for the hours award.';}
+        }
+        // Highlight which award this goal reaches
+        document.querySelectorAll('.goal-award-item').forEach(el=>{
+            const t=parseInt(el.dataset.hrs);
+            el.classList.toggle('goal-award-selected', t<=val);
+        });
+    };
+    slider.addEventListener('input',()=>updateUI(parseInt(slider.value)));
+    updateUI(existing);
+    document.getElementById('goal-save-btn').addEventListener('click',async()=>{
+        const val=parseInt(slider.value);
+        await saveHoursGoal(val,close);
+    });
+    document.getElementById('goal-clear-btn')?.addEventListener('click',async()=>{
+        await saveHoursGoal(null,close);
+    });
+}
+
+async function saveHoursGoal(goal,closeFn) {
+    const btn=document.getElementById('goal-save-btn');
+    const err=document.getElementById('goal-err');
+    if(btn)btn.disabled=true;
+    try {
+        await postAction('set_hours_goal',{volunteerName:S.user.name,goal:goal===null?'':goal});
+        S.data.hoursGoal=goal;
+        toast(goal?`Goal set to ${goal} hrs!`:'Goal cleared','success');
+        if(closeFn)closeFn();
+        viewDashboard();
+    } catch(e) {
+        if(err)err.textContent=e.message;
+        if(btn){btn.disabled=false;}
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    VIEW: DASHBOARD
    ═══════════════════════════════════════════════════════════════ */
 function viewDashboard() {
@@ -772,6 +879,16 @@ function viewDashboard() {
     const u=S.user||{};
     const track=u.track?(CONFIG.TRACKS[u.track]||{}):{};
     const stats=S.data.myStats||{totalHours:0,curricCount:0,eventsCount:0};
+    const HOUR_AWARDS=[
+        {hrs:20, icon:'🏅', label:'Eligible for Hours Award'},
+        {hrs:50, icon:'🎖', label:'Committed Volunteer Award'},
+        {hrs:100,icon:'🥇', label:'Gold Hours Award'},
+        {hrs:150,icon:'💎', label:'Platinum Hours Award'},
+    ];
+    const hoursGoal=S.data.hoursGoal||null;
+    const goalPct=hoursGoal?Math.min(100,Math.round((stats.totalHours/hoursGoal)*100)):0;
+    const nextAward=HOUR_AWARDS.find(a=>a.hrs>stats.totalHours);
+    const nextAwardText=nextAward?`${nextAward.icon} ${Math.round(nextAward.hrs-stats.totalHours)} more hrs to ${nextAward.label}`:'🏆 All milestone awards earned!';
     const currRegs=S.data.myRegistrations||[];
     const evRegs=S.data.myEventRegistrations||[];
     // Combine for display, up to 3 total
@@ -841,10 +958,21 @@ function viewDashboard() {
                 <div class="dash-track-sub">${u.lead?'Team Lead · ':''}Curio Crate Volunteer</div>
             </div>
         </div>`:''}
-        <div class="card-grid card-grid-4 mb-20">
-            <div class="stat-card">
+        <div class="card-grid card-grid-4 mb-12">
+            <div class="stat-card stat-hours-card" onclick="showHoursGoalModal()" title="Click to set an hours goal">
                 <div class="stat-icon" style="background:var(--blue-g)">⏱</div>
-                <div><div class="stat-val">${stats.totalHours}</div><div class="stat-lbl">Total Hours</div></div>
+                ${hoursGoal?`<div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:baseline;gap:5px">
+                        <div class="stat-val">${stats.totalHours}</div>
+                        <div class="stat-val-of">/ ${hoursGoal} hrs</div>
+                    </div>
+                    <div class="stat-lbl">Total Hours</div>
+                    <div class="hours-goal-track"><div class="hours-goal-fill" style="width:${goalPct}%"></div></div>
+                    <div class="hours-goal-milestone">${nextAwardText}</div>
+                </div>`:`<div>
+                    <div class="stat-val">${stats.totalHours}</div>
+                    <div class="stat-lbl">Total Hours · <span class="hours-goal-hint">Set goal →</span></div>
+                </div>`}
             </div>
             <div class="stat-card">
                 <div class="stat-icon" style="background:var(--teal-g)">📚</div>
@@ -859,6 +987,10 @@ function viewDashboard() {
                 <div><div class="stat-val" style="color:var(--gold)">${currRegs.length+evRegs.length}</div><div class="stat-lbl">Registered</div></div>
             </div>
         </div>
+        ${(S.data.orgRank||S.data.chapRank)?`<div class="hours-rank-row mb-20">
+            ${S.data.orgRank?`<span class="hours-rank-badge">🏆 #${S.data.orgRank} of ${S.data.orgTotal} in the organization</span>`:''}
+            ${(S.data.chapRank&&S.data.chapTotal>1)?`<span class="hours-rank-badge hours-rank-chap">📍 #${S.data.chapRank} of ${S.data.chapTotal} in your chapter</span>`:''}
+        </div>`:'<div class="mb-20"></div>'}
         <div class="dash-two-col">
             <div>
                 <div class="section-title">YOUR ACTIVE REGISTRATIONS</div>

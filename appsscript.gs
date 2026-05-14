@@ -8,10 +8,10 @@
  * 4. Add form-submit trigger: Triggers (clock icon) → + Add Trigger
  *    Function: onFormSubmit | From spreadsheet | On form submit
  *
- * VOLUNTEERS SHEET columns (A–M):
+ * VOLUNTEERS SHEET columns (A–N):
  *   A=Name  B=Discord  C=School  D=Avatar  E=Email
  *   F=Track  G=Tier  H=Lead  I=CyclesCompleted
- *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours
+ *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
  *
  * CURRICULUM SHEET columns (A–I):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
@@ -130,6 +130,7 @@ function route(body) {
         case 'give_event_hours':       return giveEventHours(body);
         /* Volunteers */
         case 'update_tier':            return updateTier(body);
+        case 'set_hours_goal':         return setHoursGoal(body);
         default:
             throw new Error('Unknown action: ' + body.action);
     }
@@ -406,6 +407,13 @@ function updateTier(b) {
     if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
     updateCell(SHEET_VOLUNTEERS, found[0], 6, b.newTier); // col G (0-indexed 6)
     return 'Tier updated: ' + b.volunteerName + ' → ' + b.newTier;
+}
+
+function setHoursGoal(b) {
+    const found = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
+    if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
+    updateCell(SHEET_VOLUNTEERS, found[0], 13, b.goal); // col N (0-indexed 13)
+    return 'Hours goal set: ' + b.volunteerName + ' → ' + b.goal;
 }
 
 /* ── FORM SUBMIT TRIGGER ────────────────────────────────────── */
