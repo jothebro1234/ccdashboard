@@ -667,7 +667,8 @@ function showRoleAuth(role) {
             if(err)err.textContent='Network error. Try again.';
             if(btn2){btn2.disabled=false;btn2.textContent='Enter';}
         }
-    };  document.getElementById('dir-auth-btn').onclick=tryCode;
+    };  
+    document.getElementById('dir-auth-btn').onclick=tryCode;
     input.addEventListener('keydown',e=>{if(e.key==='Enter')tryCode();});
     document.getElementById('auth-back').onclick=showCodeLoginMenu;
     input.focus();
