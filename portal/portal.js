@@ -635,9 +635,19 @@ function showRoleAuth(role) {
             <p class="auth-back" id="auth-back">← Back</p>
         </div>`;
     const input=document.getElementById('dir-code-input');
-    const tryCode=()=>{
+    const tryCode=async()=>{
         const code=input.value.trim();
-        if(code===CONFIG.DIRECTOR_CODES[role]){
+        if(!code){const e=document.getElementById('auth-err-msg');if(e)e.textContent='Enter a code.';return;}
+        const btn2=document.getElementById('dir-auth-btn');
+        if(btn2){btn2.disabled=true;btn2.textContent='Checking...';}
+        try {
+            const res=await fetch(CONFIG.AUTH_WORKER_URL+'/auth',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({role,code})
+            });
+            const data=await res.json();
+            if(data.ok){
             S.role=role;
             S.dirRole=role;
             const dirCfg=CONFIG.DIRECTORS[role]||{};
@@ -645,14 +655,19 @@ function showRoleAuth(role) {
             S._dirUser=S.user;
             S.volUser=null;
             launchDirectorPortal(role);
-        } else {
+            } else {
+                const err=document.getElementById('auth-err-msg');
+                if(err)err.textContent=data.msg||'Incorrect code.';
+                input.value='';input.focus();
+                setTimeout(()=>{if(err)err.textContent='';},2500);
+                if(btn2){btn2.disabled=false;btn2.textContent='Enter';}
+            }
+        } catch(e){
             const err=document.getElementById('auth-err-msg');
-            err.textContent='Incorrect code.';
-            input.value='';input.focus();
-            setTimeout(()=>{if(err)err.textContent='';},2500);
+            if(err)err.textContent='Network error. Try again.';
+            if(btn2){btn2.disabled=false;btn2.textContent='Enter';}
         }
-    };
-    document.getElementById('dir-auth-btn').onclick=tryCode;
+    }  document.getElementById('dir-auth-btn').onclick=tryCode;
     input.addEventListener('keydown',e=>{if(e.key==='Enter')tryCode();});
     document.getElementById('auth-back').onclick=showCodeLoginMenu;
     input.focus();
