@@ -238,19 +238,14 @@ function parseCSV(raw) {
    DATA LAYER
    ═══════════════════════════════════════════════════════════════ */
 async function fetchSheet(name) {
-    const url=`https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
-    const res=await fetch(url,{cache:'no-store'});
+    const res=await fetch(`/api/sheet?name=${encodeURIComponent(name)}`);
     if(!res.ok)throw new Error(`Sheet "${name}": HTTP ${res.status}`);
     return parseCSV(await res.text());
 }
 
 async function postAction(action,payload) {
-    if(!CONFIG.APPS_SCRIPT_URL){
-        toast('Write operations require Apps Script URL in config.js','error');
-        throw new Error('APPS_SCRIPT_URL not configured');
-    }
     const body=JSON.stringify({action,...payload});
-    const res=await fetch(CONFIG.APPS_SCRIPT_URL,{method:'POST',body,headers:{'Content-Type':'text/plain'}});
+    const res=await fetch('/api/write',{method:'POST',body,headers:{'Content-Type':'text/plain'}});
     let data;
     try{data=await res.json();}catch(_){return;} // non-JSON response is fine
     if(data&&data.ok===false)throw new Error(data.error||'Server returned an error');
@@ -400,11 +395,6 @@ async function loadLbData() {
 /* ═══════════════════════════════════════════════════════════════
    AUTH
    ═══════════════════════════════════════════════════════════════ */
-function parseURLParams() {
-    const p=new URLSearchParams(window.location.search);
-    return{role:p.get('role')};
-}
-
 const SESSION_KEY='cc_portal_session';
 
 function saveSession() {
@@ -457,8 +447,7 @@ async function initAuth() {
             localStorage.removeItem(SESSION_KEY);
         }
     }
-    const{role}=parseURLParams();
-    if(role){showRoleAuth(role);}else{showLanding();}
+    showLanding();
 }
 
 function initGoogleSignIn() {
@@ -564,43 +553,10 @@ function showLanding() {
             <p class="auth-desc" style="font-size:12px">
                 New volunteer? <a href="${esc(CONFIG.JOIN_URL)}" target="_blank" class="auth-link">Fill out the sign-up form first →</a>
             </p>
-            <hr style="border:none;border-top:1px solid rgba(255,255,255,.08);width:100%;margin-top:4px">
-            <p class="auth-desc" style="font-size:11px;text-align:center">
-                <button class="auth-link-btn" id="staff-login-link">Staff login →</button>
-            </p>
         </div>`;
     initGoogleSignIn();
-    document.getElementById('staff-login-link')?.addEventListener('click',showCodeLoginMenu);
 }
 
-function showCodeLoginMenu() {
-    const allRoles=[
-        {role:'president',icon:'👑',label:'President'},
-        {role:'vp',icon:'🏅',label:'Vice President'},
-        {role:'sec',icon:'📝',label:'Secretary'},
-        {role:'tres',icon:'💰',label:'Treasurer'},
-        {role:'cpo',icon:'🤝',label:'Chief Product Officer'},
-        {role:'doc',icon:'📚',label:'Director of Curriculum'},
-        {role:'doo',icon:'🎓',label:'Director of Operations'},
-        {role:'dop',icon:'📣',label:'Director of Publicity'},
-        {role:'hr',icon:'👥',label:'Human Resources'},
-        {role:'mr',icon:'📋',label:'MR'},
-        {role:'trial',icon:'🔍',label:'Trial (Read-only)'},
-    ];
-    document.getElementById('auth-title').textContent='Staff Login';
-    document.getElementById('auth-body').innerHTML=`
-        <div class="auth-body">
-            <p class="auth-desc" style="margin-bottom:4px">Select your role to enter your access code.</p>
-            <div class="auth-role-grid">
-                ${allRoles.map(r=>`<button class="auth-role-btn" data-role="${esc(r.role)}">${r.icon} ${r.label}</button>`).join('')}
-            </div>
-            <p class="auth-back" id="auth-back">← Back</p>
-        </div>`;
-    document.querySelectorAll('.auth-role-btn').forEach(btn=>{
-        btn.onclick=()=>showRoleAuth(btn.dataset.role);
-    });
-    document.getElementById('auth-back').onclick=showLanding;
-}
 
 function showNotRegistered(email,picture) {
     document.getElementById('auth-title').textContent='Not Registered Yet';
@@ -614,49 +570,6 @@ function showNotRegistered(email,picture) {
         </div>`;
 }
 
-function showRoleAuth(role) {
-    const labels={
-        doc:'Director of Curriculum',doo:'Director of Operations',dop:'Director of Publicity',
-        president:'President',cef:'Chief Executive Fellow',vp:'Vice President',
-        sec:'Secretary',tres:'Treasurer',cpo:'Chief Product Officer',
-        hr:'Human Resources',mr:'MR',trial:'Trial Director',
-    };
-    const icons={
-        doc:'📚',doo:'🎓',dop:'📣',president:'👑',cef:'🌟',vp:'🏅',
-        sec:'📝',tres:'💰',cpo:'🤝',hr:'👥',mr:'📋',trial:'🔍',
-    };
-    document.getElementById('auth-title').textContent=`${icons[role]||''} ${labels[role]||role}`;
-    document.getElementById('auth-body').innerHTML=`
-        <div class="auth-body">
-            <label class="auth-label">Director Code</label>
-            <input class="auth-input" id="dir-code-input" type="password" placeholder="Enter access code…" autocomplete="off">
-            <button class="auth-btn" id="dir-auth-btn">Unlock Dashboard</button>
-            <div class="auth-err" id="auth-err-msg"></div>
-            <p class="auth-back" id="auth-back">← Back</p>
-        </div>`;
-    const input=document.getElementById('dir-code-input');
-    const tryCode=()=>{
-        const code=input.value.trim();
-        if(code===CONFIG.DIRECTOR_CODES[role]){
-            S.role=role;
-            S.dirRole=role;
-            const dirCfg=CONFIG.DIRECTORS[role]||{};
-            S.user={name:dirCfg.name||labels[role]||role,role,track:dirCfg.track||getDirTrack(role)};
-            S._dirUser=S.user;
-            S.volUser=null;
-            launchDirectorPortal(role);
-        } else {
-            const err=document.getElementById('auth-err-msg');
-            err.textContent='Incorrect code.';
-            input.value='';input.focus();
-            setTimeout(()=>{if(err)err.textContent='';},2500);
-        }
-    };
-    document.getElementById('dir-auth-btn').onclick=tryCode;
-    input.addEventListener('keydown',e=>{if(e.key==='Enter')tryCode();});
-    document.getElementById('auth-back').onclick=showCodeLoginMenu;
-    input.focus();
-}
 
 function showAuthError(msg) {
     document.getElementById('auth-body').innerHTML=`

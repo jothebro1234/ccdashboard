@@ -31,8 +31,7 @@ function parseCSV(raw) {
 }
 
 async function fetchSheet(name) {
-    const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(`/api/sheet?name=${encodeURIComponent(name)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status} (sheet: "${name}")`);
     return parseCSV(await res.text());
 }
@@ -225,23 +224,42 @@ document.addEventListener('DOMContentLoaded', () => {
         unlock();
         return;
     }
-
-    const input = document.getElementById('code-input');
-    const errEl = document.getElementById('lock-err');
-
-    function tryCode() {
-        if (input.value === CONFIG.ADMIN_CODE) {
-            sessionStorage.setItem('cc_admin_unlocked', 'true');
-            unlock();
-        } else {
-            errEl.textContent = 'Incorrect code — try again.';
-            input.value = '';
-            input.focus();
-            setTimeout(() => { errEl.textContent = ''; }, 2500);
-        }
-    }
-
-    document.getElementById('code-submit').addEventListener('click', tryCode);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') tryCode(); });
-    input.focus();
+    initAdminGoogleSignIn();
 });
+
+function initAdminGoogleSignIn() {
+    if (typeof google === 'undefined') { setTimeout(initAdminGoogleSignIn, 200); return; }
+    google.accounts.id.initialize({
+        client_id: CONFIG.GOOGLE_CLIENT_ID,
+        callback: handleAdminSignIn,
+    });
+    const wrap = document.getElementById('admin-g-btn-wrap');
+    if (wrap) {
+        google.accounts.id.renderButton(wrap, {
+            theme: 'filled_blue', size: 'large', width: 260,
+            text: 'signin_with', shape: 'pill',
+        });
+    }
+}
+
+async function handleAdminSignIn(credentialResponse) {
+    const errEl = document.getElementById('lock-err');
+    try {
+        const parts = (credentialResponse.credential || '').split('.');
+        if (parts.length < 2) throw new Error('Invalid credential.');
+        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        const email = (payload.email || '').trim().toLowerCase();
+        if (!email) throw new Error('No email returned from Google.');
+
+        const rows = await fetchSheet(CONFIG.DIRECTORS_SHEET || 'Directors');
+        const found = rows.slice(1).some(r => (r[0] || '').trim().toLowerCase() === email);
+        if (!found) {
+            errEl.textContent = 'Access denied — your account is not a registered director.';
+            return;
+        }
+        sessionStorage.setItem('cc_admin_unlocked', 'true');
+        unlock();
+    } catch (e) {
+        errEl.textContent = 'Sign-in error: ' + e.message;
+    }
+}

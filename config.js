@@ -1,6 +1,5 @@
 const CONFIG = {
     // ── Leaderboard (unchanged) ───────────────────────────────────
-    SHEET_ID:                '1VOGj6vehl2Fzko6YBEynopzqLnlj3vWy1CkLi0P6l5Y',
     SHEET_NAME:              'Volunteers',
     EVENTS_SHEET_NAME:       'Events',
     CURRICULUM_SHEET_NAME:   'Curriculum',
@@ -12,24 +11,6 @@ const CONFIG = {
     SHOW_DISCORD:            true,
     JOIN_URL:   'https://docs.google.com/forms/d/e/1FAIpQLSd6iFIbmLERmHtN7eigAIqTQX6aqdnssGX2uxGCXcvpIRmWsA/viewform?usp=sharing&ouid=106234786547754035782',
     INSTAGRAM_URL: 'https://www.instagram.com/ckf.curiocrate/',
-    ADMIN_CODE: 'ccadmin2025',
-
-    // ── Portal: Director Access Codes ────────────────────────────
-    // Each role has its own code. Change these before sharing with directors.
-    DIRECTOR_CODES: {
-        doc:       'ccdoc2025',
-        doo:       'ccdoo2025',
-        dop:       'ccdop2025',
-        president: 'ccadmin2025',
-        cef:       'cccef2025',
-        vp:        'ccvp2025',
-        sec:       'ccsec2025',
-        tres:      'cctres2025',
-        cpo:       'cccpo2025',
-        hr:        'cchr2025',
-        mr:        'ccmr2025',
-        trial:     'cctrial2025',
-    },
 
     // ── Portal: New Sheet Names ─────────────────────────────────
     CHAPTERS_SHEET:  'Chapters',
@@ -54,11 +35,6 @@ const CONFIG = {
     NOMINATIONS_SHEET: 'Nominations',  // Tier-up nominations
     CYCLES_SHEET:      'Cycles',       // Two-week cycle registry
     CONTENT_CAL_SHEET: 'ContentCalendar', // Publicity content calendar
-
-    // ── Portal: Write Endpoint ────────────────────────────────────
-    // Deploy appsscript.gs as a Web App (Execute as: Me, Anyone can access)
-    // then paste the /exec URL here. Leave blank for read-only mode.
-    APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxMLYVSDKm6R3P-jCxEEySC6qU6ShoAYJxc-Snz15ZpjnSmEhj-2mIg5aqmTzIOv4Tk/exec',
 
     // ── Google OAuth ──────────────────────────────────────────────
     GOOGLE_CLIENT_ID: '1009212045762-e6kcfjh3iva58bclegmqb1eq3oea6iso.apps.googleusercontent.com',

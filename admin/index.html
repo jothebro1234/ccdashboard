@@ -9,6 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../style.css">
     <link rel="stylesheet" href="../admin.css">
+    <script src="https://accounts.google.com/gsi/client" async></script>
 </head>
 <body>
 
@@ -25,9 +26,8 @@
     <div class="lock-card">
         <div class="lock-icon">🔒</div>
         <div class="lock-title">ADMIN ACCESS</div>
-        <div class="lock-sub">Enter the admin code to continue</div>
-        <input type="password" id="code-input" class="lock-input" placeholder="Enter code..." autocomplete="off">
-        <button id="code-submit" class="lock-btn">Unlock</button>
+        <div class="lock-sub">Sign in with your director Google account</div>
+        <div id="admin-g-btn-wrap" style="display:flex;justify-content:center;margin:16px 0 8px"></div>
         <div class="lock-err" id="lock-err"></div>
     </div>
 </div>

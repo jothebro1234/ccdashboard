@@ -28,8 +28,7 @@ function animatePageIn() {
 // DATA FETCHING
 // ═══════════════════════════════════════════════════════════════
 async function fetchSheet(name) {
-    const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(name)}`;
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(`/api/sheet?name=${encodeURIComponent(name)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status} (sheet: "${name}")`);
     return parseCSV(await res.text());
 }
