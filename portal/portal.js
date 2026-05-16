@@ -12,7 +12,7 @@ const S = {
     dirRole: null,  // the director role when in volunteer view
     volUser: null,  // volunteer record if a director is also a volunteer
     _dirUser: null, // saved director user when switching views
-    chapData: null, // { name, school } for chapter_rep
+    chapData: null, // { name, school } fr chapter_rep
 };
 
 /* ── Role helpers ─────────────────────────────────────────── */
