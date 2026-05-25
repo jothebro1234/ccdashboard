@@ -662,6 +662,14 @@ function showAuthError(msg) {
 /* ═══════════════════════════════════════════════════════════════
    PORTAL LAUNCH
    ═══════════════════════════════════════════════════════════════ */
+function _setupPortalExtras(){
+    const btn=document.getElementById('sb-first-time');
+    if(btn)btn.onclick=()=>startTutorial(true);
+    const fab=document.getElementById('insta-fab');
+    if(fab)fab.href=(typeof CONFIG!=='undefined'&&CONFIG.INSTAGRAM_URL)||'https://www.instagram.com/ckf.curiocrate/';
+    setTimeout(()=>startTutorial(),600);
+}
+
 function launchPortal() {
     saveSession();
     document.getElementById('auth-gate').style.display='none';
@@ -672,6 +680,7 @@ function launchPortal() {
     navigate('dashboard');
     setupMobileToggle();
     startPolling();
+    _setupPortalExtras();
 }
 
 async function launchDirectorPortal(role) {
@@ -692,6 +701,7 @@ async function launchDirectorPortal(role) {
         navigate('director');
         setupMobileToggle();
         startPolling();
+        _setupPortalExtras();
     } catch(e){
         hideLoading();showAuthError(e.message);
     }
@@ -3245,6 +3255,139 @@ async function viewCalendar(){
     });
 
     root.innerHTML=html;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TUTORIAL / ONBOARDING WALKTHROUGH
+   ═══════════════════════════════════════════════════════════════ */
+const TUTO_KEY='cc_tutorial_v1';
+let _tutoStep=0;
+
+const TUTORIAL_STEPS=[
+    {
+        target:null,
+        title:'👋 Welcome to Curio Crate!',
+        body:'This is the <strong>Volunteer Portal</strong> — your hub for tracking hours, signing up for assignments, and climbing the leaderboard.<br><br>Let me walk you through the key features. Takes about a minute!',
+    },
+    {
+        target:'#sb-nav',
+        title:'📍 Sidebar Navigation',
+        body:'The <strong>sidebar</strong> on the left is how you get around. Click any item to switch sections.',
+    },
+    {
+        target:'.sb-item[data-view="dashboard"]',
+        title:'🏠 Dashboard',
+        body:'Your <strong>Dashboard</strong> shows a quick summary: total hours, assignments completed, events attended, and your current volunteer tier.',
+    },
+    {
+        target:'.sb-item[data-view="activities"]',
+        title:'📚 Activities',
+        body:'Browse <strong>Activities</strong> to find open curriculum assignments and upcoming events. Click a card to sign up, view instructions, or check your status.',
+    },
+    {
+        target:'.sb-item[data-view="leaderboard"]',
+        title:'🥇 Leaderboard',
+        body:'The <strong>Leaderboard</strong> ranks all volunteers by total hours. Track your placement and see who\'s leading the pack!',
+    },
+    {
+        target:'#sb-user',
+        title:'👤 Your Profile',
+        body:'Your <strong>name and volunteer track</strong> appear here. Use the "Change your preferences" link below to update your track at any time.',
+    },
+    {
+        target:null,
+        title:'🎉 You\'re all set!',
+        body:'That covers the essentials! You can replay this tour anytime by clicking <strong>"✨ First Time?"</strong> at the bottom of the sidebar.<br><br>Happy volunteering! 🌟',
+    },
+];
+
+function startTutorial(force){
+    if(!force&&localStorage.getItem(TUTO_KEY))return;
+    _tutoStep=0;
+    _renderTutoStep();
+}
+
+function _clearTuto(){
+    document.getElementById('tuto-bd')?.remove();
+    document.getElementById('tuto-card')?.remove();
+    document.querySelectorAll('.tuto-highlight').forEach(el=>el.classList.remove('tuto-highlight'));
+    // Restore sidebar z-index if we boosted it
+    document.querySelector('.sidebar[data-tuto-z]')?.removeAttribute('data-tuto-z');
+    document.querySelector('.sidebar')?.style.removeProperty('z-index');
+}
+
+function _renderTutoStep(){
+    _clearTuto();
+
+    const step=TUTORIAL_STEPS[_tutoStep];
+    const total=TUTORIAL_STEPS.length;
+    const isFirst=_tutoStep===0;
+    const isLast=_tutoStep===total-1;
+
+    const dots=Array.from({length:total},(_,i)=>`<span class="tuto-dot${i===_tutoStep?' active':''}"></span>`).join('');
+
+    // Backdrop — separate element at z-index 8900
+    const bd=document.createElement('div');
+    bd.id='tuto-bd';
+    bd.className='tuto-backdrop';
+    document.body.appendChild(bd);
+
+    // Card — separate element at z-index 9400 (above any stacking context we boost)
+    const card=document.createElement('div');
+    card.id='tuto-card';
+    card.className='tuto-card tuto-card-center';
+    card.tabIndex=-1;
+    card.innerHTML=`
+<div class="tuto-step-lbl">Step ${_tutoStep+1} of ${total}</div>
+<div class="tuto-title">${step.title}</div>
+<div class="tuto-body">${step.body}</div>
+<div class="tuto-dots">${dots}</div>
+<div class="tuto-actions">
+    <button class="tuto-skip" type="button">Skip tour</button>
+    <div class="tuto-nav">
+        ${!isFirst?'<button class="tuto-prev" type="button">← Back</button>':'<span></span>'}
+        <button class="tuto-next" type="button">${isLast?'Finish! 🎉':'Next →'}</button>
+    </div>
+</div>`;
+    document.body.appendChild(card);
+
+    // Highlight target and position card beside it
+    if(step.target){
+        const targetEl=document.querySelector(step.target);
+        if(targetEl){
+            targetEl.classList.add('tuto-highlight');
+            // Boost the sidebar's stacking context above the backdrop so
+            // sidebar items are visually spotlit through the dark overlay
+            const sb=targetEl.closest('.sidebar');
+            if(sb){sb.setAttribute('data-tuto-z','1');sb.style.zIndex='9200';}
+            // Position card to the right of the target
+            const rect=targetEl.getBoundingClientRect();
+            const ch=card.offsetHeight||200;
+            let top=rect.top+rect.height/2-ch/2;
+            top=Math.max(16,Math.min(top,window.innerHeight-ch-16));
+            const left=rect.right+14;
+            const maxW=Math.min(292,window.innerWidth-left-16);
+            card.className='tuto-card tuto-has-arrow';
+            card.style.cssText=`top:${top}px;left:${left}px;max-width:${maxW}px`;
+        }
+    }
+
+    // Wire events
+    bd.onclick=_endTutorial;
+    card.querySelector('.tuto-skip').onclick=_endTutorial;
+    card.querySelector('.tuto-next').onclick=()=>isLast?_endTutorial():(_tutoStep++,_renderTutoStep());
+    card.querySelector('.tuto-prev')?.addEventListener('click',()=>{_tutoStep--;_renderTutoStep();});
+    card.onkeydown=e=>{
+        if(e.key==='Escape')_endTutorial();
+        if(e.key==='ArrowRight'&&!isLast){_tutoStep++;_renderTutoStep();}
+        if(e.key==='ArrowLeft'&&!isFirst){_tutoStep--;_renderTutoStep();}
+    };
+    card.focus();
+}
+
+function _endTutorial(){
+    _clearTuto();
+    localStorage.setItem(TUTO_KEY,'1');
 }
 
 /* ═══════════════════════════════════════════════════════════════
