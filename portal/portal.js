@@ -69,6 +69,86 @@ function combinedTrackLabel(u) {
     return t;
 }
 function genId() { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+/* ─── Card appearance helpers (color / deco / label) ─────────── */
+function getCardAccent(color){
+    const m={
+        '':     {hex:'#3A72BE',glow:'rgba(58,114,190,0.22)',bg:'rgba(58,114,190,0.07)'},
+        blue:   {hex:'#3A72BE',glow:'rgba(58,114,190,0.22)',bg:'rgba(58,114,190,0.07)'},
+        purple: {hex:'#8059D8',glow:'rgba(128,89,216,0.22)',bg:'rgba(128,89,216,0.07)'},
+        teal:   {hex:'#0EA89A',glow:'rgba(14,168,154,0.22)',bg:'rgba(14,168,154,0.07)'},
+        green:  {hex:'#18B888',glow:'rgba(24,184,136,0.22)',bg:'rgba(24,184,136,0.07)'},
+        gold:   {hex:'#D4960E',glow:'rgba(212,150,14,0.22)',bg:'rgba(212,150,14,0.07)'},
+        red:    {hex:'#E05858',glow:'rgba(224,88,88,0.22)',bg:'rgba(224,88,88,0.07)'},
+        orange: {hex:'#D87830',glow:'rgba(216,120,48,0.22)',bg:'rgba(216,120,48,0.07)'},
+        pink:   {hex:'#D87898',glow:'rgba(216,120,152,0.22)',bg:'rgba(216,120,152,0.07)'},
+    };
+    return m[color]||m[''];
+}
+function cardAppearance(r){
+    const color=(r[9]||'').trim();
+    const deco=(r[10]||'').trim();
+    const label=(r[11]||'').trim();
+    const isExclusive=deco==='exclusive';
+    const ca=getCardAccent(color);
+    const hasCustom=!!(color||deco||label);
+    // exclusive has its own full background; skip curr-has-color so they don't conflict
+    const cls=[(hasCustom&&!isExclusive?'curr-has-color':''),deco?`curr-deco-${deco}`:''].filter(Boolean).join(' ');
+    const style=hasCustom&&!isExclusive?`--card-color:${ca.hex};--card-glow:${ca.glow};--card-bg:${ca.bg}`:'';
+    const badgeCls=`card-label-badge${isExclusive?' exclusive-badge':''}`;
+    const badgeStyle=!isExclusive?`background:${ca.hex}`:'';
+    const badge=label?`<span class="${badgeCls}"${badgeStyle?` style="${badgeStyle}"`:''}>${esc(label)}</span>`:'';
+    return {cls:cls.trim(),style,badge,hex:ca.hex,hasCustom,isExclusive};
+}
+function colorDecoPickerHTML(colorId,decoId,colorRowId,decoRowId,selColor,selDeco){
+    const colors=[
+        {val:'',hex:'#3A72BE',name:'Blue'},
+        {val:'purple',hex:'#8059D8',name:'Purple'},
+        {val:'teal',hex:'#0EA89A',name:'Teal'},
+        {val:'green',hex:'#18B888',name:'Green'},
+        {val:'gold',hex:'#D4960E',name:'Gold'},
+        {val:'red',hex:'#E05858',name:'Red'},
+        {val:'orange',hex:'#D87830',name:'Orange'},
+        {val:'pink',hex:'#D87898',name:'Pink'},
+    ];
+    const decos=[
+        {val:'',label:'None'},
+        {val:'glow',label:'✨ Glow'},
+        {val:'shimmer',label:'💫 Shimmer'},
+        {val:'gradient',label:'🌈 Gradient'},
+        {val:'sparkle',label:'⭐ Sparkle'},
+        {val:'exclusive',label:'👑 Exclusive'},
+    ];
+    const swatches=colors.map(c=>`<button type="button" class="color-swatch${c.val===selColor?' swatch-selected':''}" data-color="${c.val}" style="background:${c.hex}" title="${c.name}"></button>`).join('');
+    const decoBtns=decos.map(d=>`<button type="button" class="deco-pick-btn${d.val===selDeco?' deco-selected':''}" data-deco="${d.val}">${d.label}</button>`).join('');
+    return `
+        <div class="form-group">
+            <label class="form-label">Card Color</label>
+            <div class="color-swatch-row" id="${colorRowId}">${swatches}</div>
+            <input type="hidden" id="${colorId}" value="${esc(selColor)}">
+        </div>
+        <div class="form-group">
+            <label class="form-label">Card Decoration</label>
+            <div class="deco-pick-row" id="${decoRowId}">${decoBtns}</div>
+            <input type="hidden" id="${decoId}" value="${esc(selDeco)}">
+        </div>`;
+}
+function initColorDecoPickerEvents(colorId,decoId,colorRowId,decoRowId){
+    document.querySelectorAll(`#${colorRowId} .color-swatch`).forEach(btn=>{
+        btn.onclick=()=>{
+            document.querySelectorAll(`#${colorRowId} .color-swatch`).forEach(b=>b.classList.remove('swatch-selected'));
+            btn.classList.add('swatch-selected');
+            document.getElementById(colorId).value=btn.dataset.color;
+        };
+    });
+    document.querySelectorAll(`#${decoRowId} .deco-pick-btn`).forEach(btn=>{
+        btn.onclick=()=>{
+            document.querySelectorAll(`#${decoRowId} .deco-pick-btn`).forEach(b=>b.classList.remove('deco-selected'));
+            btn.classList.add('deco-selected');
+            document.getElementById(decoId).value=btn.dataset.deco;
+        };
+    });
+}
 /* Returns today as YYYY-MM-DD in the *local* timezone — avoids UTC midnight parse issues */
 function localToday() {
     const n=new Date();
@@ -919,10 +999,12 @@ function viewDashboard() {
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
         const startDate=r[5]||'';
         const countdown=formatCountdown(startDate);
-        return `<div class="curr-card dash-assign-card" data-assign-name="${esc(r[0]||'')}" data-type="curr" style="cursor:pointer">
+        const dap=cardAppearance(r);
+        const dStyle=dap.style?`${dap.style};cursor:pointer`:'cursor:pointer';
+        return `<div class="curr-card dash-assign-card ${dap.cls}" data-assign-name="${esc(r[0]||'')}" data-type="curr" style="${dStyle}">
             <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
-                    <div class="curr-title">${esc(r[0]||'Assignment')}</div>
+                    ${dap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Assignment')}</div>${dap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Assignment')}</div>`}
                     <div class="curr-meta" style="margin-top:4px">📅 Due ${fmtDateTimeStr(r[1])} · ⏱ ${esc(String(r[2]||0))}h credit</div>
                     ${!locked&&startDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Closes ${fmtDateTimeStr(startDate)}</div>`:''}
                     ${done?`<div class="curr-waiting">⏳ Waiting for director to confirm hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots filled</div>`}
@@ -1089,10 +1171,8 @@ function viewDirectorOverview() {
                 ${openAssignments.slice(0,4).map(r=>{
                     const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
                     const maxVols=parseInt(r[6])||0;
-                    return `<div class="curr-card">
-                        <div class="curr-title">${esc(r[0]||'')}</div>
-                        <div class="curr-meta">Due ${fmtDate(r[1])} · ${filled}/${maxVols} slots · ${esc(formatCountdown(r[5]))}</div>
-                    </div>`;
+                    const oa=cardAppearance(r);
+                    return `<div class="curr-card ${oa.cls}"${oa.style?` style="${oa.style}"`:''}>${oa.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'')}</div>${oa.badge}</div>`:`<div class="curr-title">${esc(r[0]||'')}</div>`}<div class="curr-meta">Due ${fmtDate(r[1])} · ${filled}/${maxVols} slots · ${esc(formatCountdown(r[5]))}</div></div>`;
                 }).join('')||'<div class="muted text-small">No open assignments.</div>'}
             </div>
             <div>
@@ -1193,10 +1273,11 @@ function currSimpleRowHTML(r) {
     if(done)badge='<span class="curr-done-badge" style="font-size:10px;padding:2px 8px">Done</span>';
     else if(locked)badge='<span class="curr-lock-badge" style="font-size:10px;padding:2px 8px">Locked</span>';
     else badge='<span class="curr-open-badge" style="font-size:10px;padding:2px 8px">Open</span>';
+    const ap=cardAppearance(r);
     return `<div class="curr-simple-row ${done?'done':''}" data-name="${esc(name)}" style="cursor:pointer">
         <span class="curr-simple-icon">${done?'✅':locked?'🔒':'📋'}</span>
         <div style="flex:1;min-width:0">
-            <div class="curr-simple-name">${esc(name)}</div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="curr-simple-name">${esc(name)}</span>${ap.badge}</div>
             <div class="curr-simple-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
         </div>
         <span class="curr-simple-badge">${badge}</span>
@@ -1268,10 +1349,19 @@ function currCardHTML(r,lowerName) {
     }
 
     const cardCls=done?'curr-completed':locked&&!isCredited?'curr-locked':'';
-    return `<div class="curr-card ${cardCls} ${isCredited?'curr-credited':''} curr-clickable" data-name="${esc(name)}">
-        <div style="display:flex;align-items:flex-start;gap:12px">
+    const ap=cardAppearance(r);
+    const styleAttr=ap.style?` style="${ap.style}"`:'';
+    const exSparkles=ap.isExclusive
+        ?`<span class="ex-sparkle" style="top:8px;right:10px;--ex-sz:12px;--ex-color:#d4960e;--ex-dur:1.8s;--ex-delay:0s;--ex-scale:1.5">✦</span>`+
+          `<span class="ex-sparkle" style="top:24px;left:22px;--ex-sz:7px;--ex-color:#8059d8;--ex-dur:2.3s;--ex-delay:.4s;--ex-scale:1.7">✦</span>`+
+          `<span class="ex-sparkle" style="bottom:10px;right:16px;--ex-sz:10px;--ex-color:#0ea89a;--ex-dur:2.1s;--ex-delay:.9s;--ex-scale:1.5">✦</span>`+
+          `<span class="ex-sparkle" style="bottom:18px;left:50px;--ex-sz:6px;--ex-color:#e05858;--ex-dur:2.6s;--ex-delay:1.3s;--ex-scale:1.9">✧</span>`+
+          `<span class="ex-sparkle" style="top:48%;right:28px;--ex-sz:8px;--ex-color:#18b888;--ex-dur:2.0s;--ex-delay:.7s;--ex-scale:1.6">✦</span>`
+        :'';
+    return `<div class="curr-card ${cardCls} ${isCredited?'curr-credited':''} curr-clickable ${ap.cls}" data-name="${esc(name)}"${styleAttr}>
+        ${exSparkles}<div style="display:flex;align-items:flex-start;gap:12px">
             <div style="flex:1;min-width:0">
-                <div class="curr-title">${esc(name)}</div>
+                ${ap.badge?`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><div class="curr-title" style="margin-bottom:0">${esc(name)}</div>${ap.badge}</div>`:`<div class="curr-title">${esc(name)}</div>`}
                 <div class="curr-meta" style="margin-top:5px">📅 Due ${fmtDateTimeStr(r[1])} · ⏱ ${esc(hours)}h credit</div>
                 ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
                 ${signupCloseHTML}
@@ -1338,9 +1428,11 @@ function showAssignmentDetail(r) {
     if(done)stateBadge='<span class="curr-done-badge">✅ Completed</span>';
     else if(locked)stateBadge='<span class="curr-lock-badge">🔒 Registration closed</span>';
 
+    const cardLabel=(r[11]||'').trim();
+    const ap=cardAppearance(r);
     const html=`
         <div class="modal-header">
-            <div class="modal-title">${esc(name)}</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><div class="modal-title">${esc(name)}</div>${ap.badge}</div>
             <button class="modal-close">✕</button>
         </div>
         <div class="modal-body">
@@ -1698,10 +1790,11 @@ function dirPostAssignHTML() {
             ?'<span class="curr-done-badge">✅ Completed</span>'
             :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
             :`<span class="curr-open-badge">Open · ${esc(formatCountdown(r[5]))}</span>`;
-        return `<div class="curr-card">
+        const da=cardAppearance(r);
+        return `<div class="curr-card ${da.cls}"${da.style?` style="${da.style}"`:''}">
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
-                    <div class="curr-title">${esc(r[0]||'')}</div>
+                    ${da.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'')}</div>${da.badge}</div>`:`<div class="curr-title">${esc(r[0]||'')}</div>`}
                     <div class="curr-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
                 </div>
                 <div style="flex-shrink:0">${statusBadge}</div>
@@ -1752,6 +1845,11 @@ function dirPostAssignHTML() {
                         <label class="form-label">Instructions *</label>
                         <textarea class="form-textarea" id="pa-instructions" style="min-height:90px" placeholder="Describe what volunteers need to do, any requirements, etc."></textarea>
                     </div>
+                    ${colorDecoPickerHTML('pa-color','pa-deco','pa-color-row','pa-deco-row','','')}
+                    <div class="form-group">
+                        <label class="form-label">Custom Label <span style="font-size:11px;color:var(--textm);font-weight:600">(badge shown on card — optional)</span></label>
+                        <input class="form-input" id="pa-label" placeholder="e.g. Urgent, Bonus, Week 3, Special">
+                    </div>
                     <div class="form-err" id="pa-err"></div>
                     <button class="btn btn-primary" id="pa-submit-btn">📋 Post Assignment</button>
                 </div>
@@ -1764,6 +1862,7 @@ function dirPostAssignHTML() {
 }
 
 function attachPostAssignEvents() {
+    initColorDecoPickerEvents('pa-color','pa-deco','pa-color-row','pa-deco-row');
     document.getElementById('pa-submit-btn').onclick=async()=>{
         const name=document.getElementById('pa-name').value.trim();
         const slides=document.getElementById('pa-slides').value.trim();
@@ -1772,6 +1871,9 @@ function attachPostAssignEvents() {
         const hours=document.getElementById('pa-hours').value;
         const max=document.getElementById('pa-max').value;
         const instructions=document.getElementById('pa-instructions').value;
+        const cardColor=document.getElementById('pa-color').value;
+        const cardDeco=document.getElementById('pa-deco').value;
+        const cardLabel=document.getElementById('pa-label').value.trim();
         const err=document.getElementById('pa-err');
         if(!name||!due||!start||!hours||!max||!instructions){err.textContent='All fields including instructions are required.';return;}
         err.textContent='';
@@ -1781,7 +1883,7 @@ function attachPostAssignEvents() {
             await postAction('create_curriculum',{
                 assignmentName:name,dueDate:due,hours,contributors:'',
                 slidesLink:slides,startDate:start,maxVolunteers:max,
-                registeredVolunteers:'',instructions,
+                registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,
             });
             toast(`"${name}" posted!`,'success');
             ['pa-name','pa-slides','pa-due','pa-start','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
@@ -1833,6 +1935,9 @@ function attachPostAssignEvents() {
 
 function showEditAssignment(r) {
     const name=r[0]||'';
+    const selColor=(r[9]||'').trim();
+    const selDeco=(r[10]||'').trim();
+    const selLabel=(r[11]||'').trim();
     const html=`
         <div class="modal-header">
             <div class="modal-title">Edit Assignment</div>
@@ -1872,11 +1977,17 @@ function showEditAssignment(r) {
                     <label class="form-label">Instructions</label>
                     <textarea class="form-textarea" id="ed-instructions" style="min-height:100px">${esc(r[8]||'')}</textarea>
                 </div>
+                ${colorDecoPickerHTML('ed-color','ed-deco','ed-color-row','ed-deco-row',selColor,selDeco)}
+                <div class="form-group">
+                    <label class="form-label">Custom Label <span style="font-size:11px;color:var(--textm);font-weight:600">(badge on card — optional)</span></label>
+                    <input class="form-input" id="ed-label" value="${esc(selLabel)}" placeholder="e.g. Urgent, Bonus, Week 3, Special">
+                </div>
                 <div class="form-err" id="ed-err"></div>
                 <button class="btn btn-primary" id="ed-submit-btn">Save Changes</button>
             </div>
         </div>`;
     const close=openModal(html);
+    initColorDecoPickerEvents('ed-color','ed-deco','ed-color-row','ed-deco-row');
     document.getElementById('ed-submit-btn').addEventListener('click',async()=>{
         const slides=document.getElementById('ed-slides').value.trim();
         const due=document.getElementById('ed-due').value;
@@ -1884,13 +1995,16 @@ function showEditAssignment(r) {
         const hours=document.getElementById('ed-hours').value;
         const max=document.getElementById('ed-max').value;
         const instructions=document.getElementById('ed-instructions').value;
+        const cardColor=document.getElementById('ed-color').value;
+        const cardDeco=document.getElementById('ed-deco').value;
+        const cardLabel=document.getElementById('ed-label').value.trim();
         const err=document.getElementById('ed-err');
         if(!due){err.textContent='Due date is required.';return;}
         err.textContent='';
         const btn=document.getElementById('ed-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            await postAction('edit_curriculum',{assignmentName:name,fields:{slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions}});
+            await postAction('edit_curriculum',{assignmentName:name,fields:{slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel}});
             toast(`"${name}" updated!`,'success');
             close();
             const track=getDirTrack(S.role);

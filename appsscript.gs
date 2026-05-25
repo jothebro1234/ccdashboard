@@ -13,10 +13,10 @@
  *   F=Track  G=Tier  H=Lead  I=CyclesCompleted
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
  *
- * CURRICULUM SHEET columns (A–I):
+ * CURRICULUM SHEET columns (A–L):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
- *   I=Instructions
+ *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel
  *
  * EVENTS SHEET columns (A–K):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
@@ -50,7 +50,7 @@ function getSheet(name) {
 
 function initSheetHeaders(sh, name) {
     const headers = {
-        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions'],
+        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel'],
         Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel'],
         Chapters:   ['Email','Name','School'],
         Directors:  ['Email','Name','Role'],
@@ -150,6 +150,9 @@ function createCurriculum(b) {
         b.maxVolunteers  || '',
         b.registeredVolunteers || '',
         b.instructions   || '',
+        b.cardColor      || '',
+        b.cardDeco       || '',
+        b.cardLabel      || '',
     ]);
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
@@ -173,6 +176,9 @@ function editCurriculum(b) {
     if (f.startDate     !== undefined) sh.getRange(rowIdx, 6).setValue(f.startDate);
     if (f.maxVolunteers !== undefined) sh.getRange(rowIdx, 7).setValue(f.maxVolunteers);
     if (f.instructions  !== undefined) sh.getRange(rowIdx, 9).setValue(f.instructions);
+    if (f.cardColor     !== undefined) sh.getRange(rowIdx, 10).setValue(f.cardColor);
+    if (f.cardDeco      !== undefined) sh.getRange(rowIdx, 11).setValue(f.cardDeco);
+    if (f.cardLabel     !== undefined) sh.getRange(rowIdx, 12).setValue(f.cardLabel);
     return 'Updated: ' + b.assignmentName;
 }
 

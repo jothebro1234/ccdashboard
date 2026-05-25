@@ -1424,3 +1424,209 @@ hr.divider { border: none; border-top: 1.5px solid var(--border); margin: 16px 0
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     line-height: 1.4;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD COLOR / DECO / LABEL SYSTEM
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Base: ensure position for deco pseudo-elements */
+.curr-card { position: relative; }
+
+/* Color accent: left border + subtle background tint */
+.curr-card.curr-has-color {
+    border-left: 3.5px solid var(--card-color);
+    background: linear-gradient(148deg, var(--card-bg) 0%, var(--surface) 60%);
+}
+
+/* Label badge shown on card and list rows */
+.card-label-badge {
+    display: inline-flex; align-items: center;
+    font-size: 9px; font-weight: 900; letter-spacing: .09em;
+    padding: 2px 9px; border-radius: 100px;
+    color: #fff; text-transform: uppercase; white-space: nowrap;
+    flex-shrink: 0; user-select: none; vertical-align: middle;
+}
+
+/* ─── Deco: Glow ──────────────────────────────────────────────── */
+.curr-deco-glow {
+    border-color: var(--card-color) !important;
+    animation: cardGlowPulse 2.5s ease-in-out infinite;
+}
+@keyframes cardGlowPulse {
+    0%,100% { box-shadow: 0 0 16px var(--card-glow), var(--shadow); }
+    50%      { box-shadow: 0 0 34px var(--card-glow), 0 0 0 2px color-mix(in srgb, var(--card-color) 18%, transparent), var(--shadow); }
+}
+
+/* ─── Deco: Shimmer ───────────────────────────────────────────── */
+.curr-deco-shimmer { overflow: hidden; }
+.curr-deco-shimmer::after {
+    content: ''; position: absolute;
+    top: 0; left: -75%; width: 55%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.24), transparent);
+    animation: shimmerSweep 2.6s ease-in-out infinite;
+    pointer-events: none; z-index: 1; border-radius: inherit;
+}
+.curr-deco-shimmer > * { position: relative; z-index: 2; }
+@keyframes shimmerSweep { 0% { left: -75%; } 100% { left: 160%; } }
+
+/* ─── Deco: Gradient Border ───────────────────────────────────── */
+.curr-deco-gradient {
+    border: 2px solid transparent;
+    background-image:
+        linear-gradient(var(--surface), var(--surface)),
+        linear-gradient(135deg, var(--card-color), rgba(128,89,216,.72), var(--card-color));
+    background-origin: padding-box, border-box;
+    background-clip: padding-box, border-box;
+}
+.curr-deco-gradient.curr-has-color {
+    background-image:
+        linear-gradient(148deg, var(--card-bg) 0%, var(--surface) 60%),
+        linear-gradient(135deg, var(--card-color), rgba(128,89,216,.72), var(--card-color));
+    background-origin: padding-box, border-box;
+    background-clip: padding-box, border-box;
+}
+
+/* ─── Deco: Sparkle ───────────────────────────────────────────── */
+.curr-deco-sparkle::before {
+    content: '✦'; position: absolute;
+    top: 14px; right: 14px;
+    font-size: 12px; line-height: 1;
+    color: var(--card-color);
+    animation: sparkleTwinkle 1.9s ease-in-out infinite;
+    pointer-events: none; z-index: 0; opacity: .65;
+}
+.curr-deco-sparkle::after {
+    content: '✦'; position: absolute;
+    bottom: 13px; right: 22px;
+    font-size: 7px; line-height: 1;
+    color: var(--card-color);
+    animation: sparkleTwinkle 2.4s ease-in-out .7s infinite;
+    pointer-events: none; z-index: 0; opacity: .5;
+}
+@keyframes sparkleTwinkle {
+    0%,100% { transform: scale(1) rotate(0deg); opacity: .5; }
+    50%      { transform: scale(1.5) rotate(18deg); opacity: 1; }
+}
+
+/* ─── Color/Deco pickers in post/edit forms ───────────────────── */
+.color-swatch-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; }
+.color-swatch {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 3px solid transparent; cursor: pointer;
+    transition: transform .15s, border-color .15s;
+    outline: none; flex-shrink: 0;
+}
+.color-swatch:hover { transform: scale(1.18); }
+.color-swatch.swatch-selected { border-color: var(--text); transform: scale(1.2); box-shadow: 0 2px 8px rgba(22,40,64,.18); }
+
+.deco-pick-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.deco-pick-btn {
+    padding: 6px 13px; border-radius: 100px;
+    font-size: 12px; font-weight: 700;
+    border: 1.5px solid var(--border); background: var(--surface-2);
+    color: var(--text2); cursor: pointer;
+    transition: all .15s; white-space: nowrap;
+}
+.deco-pick-btn:hover { border-color: var(--blue); color: var(--blue); background: var(--blue-g); }
+.deco-pick-btn.deco-selected { background: var(--blue-g); border-color: var(--blue); color: var(--blue); }
+
+/* ═══════════════════════════════════════════════════════════════
+   EXCLUSIVE CARD — premium animated treatment
+   ═══════════════════════════════════════════════════════════════ */
+
+.curr-deco-exclusive {
+    border: 2.5px solid #d4960e;
+    background: linear-gradient(
+        148deg,
+        rgba(251,191,36,.12) 0%,
+        rgba(167,139,250,.14) 33%,
+        rgba(34,211,238,.11) 66%,
+        rgba(248,113,113,.09) 100%
+    );
+    background-size: 300% 300%;
+    animation:
+        exBorderCycle 7s ease-in-out infinite,
+        exBgDrift    10s ease-in-out infinite,
+        exGlowCycle   7s ease-in-out infinite;
+}
+
+@keyframes exBorderCycle {
+    0%,100% { border-color: rgba(212,150,14,.95); }
+    25%      { border-color: rgba(128,89,216,.95); }
+    50%      { border-color: rgba(14,168,154,.95); }
+    75%      { border-color: rgba(248,113,113,.95); }
+}
+@keyframes exBgDrift {
+    0%,100% { background-position:   0%   0%; }
+    33%      { background-position: 100%  50%; }
+    66%      { background-position:  50% 100%; }
+}
+@keyframes exGlowCycle {
+    0%,100% { box-shadow: 0 0 22px rgba(212,150,14,.40), 0 0 48px rgba(212,150,14,.18), var(--shadow-md); }
+    25%      { box-shadow: 0 0 22px rgba(128,89,216,.40), 0 0 48px rgba(128,89,216,.18), var(--shadow-md); }
+    50%      { box-shadow: 0 0 22px rgba(14,168,154,.40), 0 0 48px rgba(14,168,154,.18), var(--shadow-md); }
+    75%      { box-shadow: 0 0 22px rgba(248,113,113,.40), 0 0 48px rgba(248,113,113,.18), var(--shadow-md); }
+}
+
+/* Shimmer sweep on exclusive cards */
+.curr-deco-exclusive::after {
+    content: ''; position: absolute;
+    top: 0; left: -100%; width: 55%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent);
+    animation: exShimmerSweep 3.2s ease-in-out infinite;
+    pointer-events: none; border-radius: inherit;
+}
+@keyframes exShimmerSweep { 0% { left: -100%; } 100% { left: 160%; } }
+
+/* Animated title text */
+.curr-deco-exclusive .curr-title {
+    background: linear-gradient(90deg, #b87000, #6030c0, #0880a0, #18b888, #b87000);
+    background-size: 400% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: exTitleShimmer 5s linear infinite;
+}
+@keyframes exTitleShimmer {
+    0%   { background-position:   0% center; }
+    100% { background-position: 400% center; }
+}
+
+/* Twinkling star decorations (spans injected via JS) */
+.ex-sparkle {
+    position: absolute;
+    font-size: var(--ex-sz, 12px);
+    color: var(--ex-color, #d4960e);
+    animation: exSparkleAnim var(--ex-dur, 2s) ease-in-out var(--ex-delay, 0s) infinite;
+    pointer-events: none; z-index: 0; line-height: 1; user-select: none;
+}
+@keyframes exSparkleAnim {
+    0%,100% { transform: scale(1) rotate(0deg); opacity: .35; }
+    50%      { transform: scale(var(--ex-scale, 1.5)) rotate(22deg); opacity: .95; }
+}
+
+/* Exclusive label badge — animated gradient */
+.exclusive-badge {
+    background: linear-gradient(135deg, #d4960e, #8059d8, #0ea89a, #d4960e) !important;
+    background-size: 300% auto !important;
+    animation: exBadgeShine 4s ease-in-out infinite;
+    box-shadow: 0 2px 12px rgba(212,150,14,.50);
+}
+@keyframes exBadgeShine {
+    0%,100% { background-position:   0% center; }
+    50%      { background-position: 300% center; }
+}
+
+/* Exclusive in the deco picker — special button style */
+.deco-pick-btn[data-deco="exclusive"] {
+    background: linear-gradient(135deg, rgba(212,150,14,.12), rgba(128,89,216,.12), rgba(14,168,154,.12));
+    border-color: rgba(212,150,14,.45);
+    color: #b87000;
+    font-weight: 800;
+}
+.deco-pick-btn[data-deco="exclusive"]:hover,
+.deco-pick-btn[data-deco="exclusive"].deco-selected {
+    background: linear-gradient(135deg, rgba(212,150,14,.22), rgba(128,89,216,.22), rgba(14,168,154,.18));
+    border-color: #d4960e;
+    color: #a06800;
+}
