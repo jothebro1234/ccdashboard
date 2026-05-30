@@ -343,10 +343,11 @@ async function loadVolunteerData(name) {
     const allEvRows=evRows.slice(1).filter(r=>r[0]);
     S.data.events=allEvRows;
     S.data.upcomingEvents=allEvRows.filter(isUpcomingEv);
-    S.data.chapters=chapRows.slice(1).filter(r=>r[0]);
+    S.data.chapters=chapRows.slice(1).filter(r=>r[1]||r[2]);
     S.data.directors=dirRows.slice(1).filter(r=>r[0]);
     S.data.allVolunteers=volRows.slice(1).filter(r=>r[0]).map(r=>({
         name:(r[0]||'').trim(),discord:(r[1]||'').trim(),school:(r[2]||'').trim(),
+        track:deriveTrack(r[5],r[9]),tier:(r[6]||'').trim()||'1',
         additionalTrack:deriveTrack('',r[18]||''),
     }));
     const lower=name.toLowerCase();
@@ -403,7 +404,7 @@ async function loadDirectorData(track) {
     ]);
     const currData=currRows.slice(1).filter(r=>r[0]);
     const evData=evRows.slice(1).filter(r=>r[0]);
-    S.data.chapters=chapRows.slice(1).filter(r=>r[0]);
+    S.data.chapters=chapRows.slice(1).filter(r=>r[1]||r[2]);
     S.data.directors=dirRows.slice(1).filter(r=>r[0]);
     const all=volRows.slice(1).map(r=>({
         name:(r[0]||'').trim(),discord:(r[1]||'').trim(),school:(r[2]||'').trim(),
