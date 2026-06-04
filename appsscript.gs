@@ -350,6 +350,14 @@ function registerEvent(b) {
     }
     if (rowIdx < 0) throw new Error('Event not found: ' + b.eventName);
 
+    // Check YMCA form requirement
+    const requiresYMCA = (rowData[14] || '').toString().trim().toUpperCase() === 'TRUE';
+    if (requiresYMCA) {
+        const volFound = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
+        const ymcaUrl = volFound ? (volFound[1][14] || '').trim() : '';
+        if (!ymcaUrl) throw new Error('This event requires a signed YMCA volunteer form. Please upload your form in the portal (My Progress → Required Forms) before registering.');
+    }
+
     // Check signup close date
     const closeDatePart = datePartStr(rowData[8]);
     const today = todayStr();

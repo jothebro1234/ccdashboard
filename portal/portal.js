@@ -2643,6 +2643,8 @@ function showEventDetail(r) {
     const closeDate=r[8]||'';
     const instructions=r[9]||'';
     const chapterLabel=r[10]||'';
+    const requiresYMCA=isChecked(r[14]);
+    const hasYMCAForm=!!(S.user?.ymcaFormURL);
     const done=isCompleted(evDate);
     const closed=closeDate&&toDateStr(closeDate)<localToday();
 
@@ -2653,6 +2655,13 @@ function showEventDetail(r) {
     const tags=[];
     if(isAssembly)tags.push('<span class="ev-tag ev-tag-assembly">Assembly</span>');
     if(isLeadership)tags.push('<span class="ev-tag ev-tag-leadership">Leadership</span>');
+    if(requiresYMCA)tags.push('<span class="ev-tag ev-tag-ymca">🏕️ YMCA</span>');
+
+    const ymcaBannerHTML=requiresYMCA&&!hasYMCAForm?`
+        <div style="margin:14px 0;padding:12px 14px;border-radius:8px;background:rgba(212,150,14,.10);border:1.5px solid rgba(212,150,14,.30);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="flex:1;min-width:0;font-size:12px;color:#b87000;font-weight:700">🏕️ This event requires a signed YMCA volunteer form to register.</div>
+            <button class="btn btn-sm" style="background:rgba(212,150,14,.15);border:1.5px solid rgba(212,150,14,.40);color:#b87000;flex-shrink:0" id="detail-ymca-btn">Upload Form</button>
+        </div>`:'';
 
     const html=`
         <div class="modal-header">
@@ -2668,6 +2677,7 @@ function showEventDetail(r) {
                 ${tags.join('')}
                 ${stateBadge}
             </div>
+            ${ymcaBannerHTML}
             ${!done&&!closed&&closeDate?`<div class="modal-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate)}</strong></div>`:''}
             ${instructions?`<div class="modal-section">
                 <div class="modal-section-title">INSTRUCTIONS</div>
@@ -2682,7 +2692,8 @@ function showEventDetail(r) {
                 <div class="vol-chips">${credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('')}</div>
             </div>`:''}
         </div>`;
-    openModal(html);
+    const close=openModal(html);
+    document.getElementById('detail-ymca-btn')?.addEventListener('click',()=>{close();showYMCAUploadModal();});
 }
 
 function attachActivitiesEvents() {
