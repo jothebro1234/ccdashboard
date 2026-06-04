@@ -8,19 +8,21 @@
  * 4. Add form-submit trigger: Triggers (clock icon) → + Add Trigger
  *    Function: onFormSubmit | From spreadsheet | On form submit
  *
- * VOLUNTEERS SHEET columns (A–N):
+ * VOLUNTEERS SHEET columns (A–O):
  *   A=Name  B=Discord  C=School  D=Avatar  E=Email
  *   F=Track  G=Tier  H=Lead  I=CyclesCompleted
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
+ *   O=YMCAFormURL
  *
  * CURRICULUM SHEET columns (A–L):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
  *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel
  *
- * EVENTS SHEET columns (A–K):
+ * EVENTS SHEET columns (A–O):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
  *   G=MaxVolunteers  H=RegisteredList  I=SignupCloseDate  J=Instructions  K=ChapterLabel
+ *   L=CardColor  M=CardDeco  N=CardLabel  O=RequiresYMCA
  *
  * CHAPTERS SHEET columns (A–C):
  *   A=Email  B=Name  C=School
@@ -51,7 +53,7 @@ function getSheet(name) {
 function initSheetHeaders(sh, name) {
     const headers = {
         Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel'],
-        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel'],
+        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'],
         Chapters:   ['Email','Name','School'],
         Directors:  ['Email','Name','Role'],
     };
@@ -131,6 +133,7 @@ function route(body) {
         /* Volunteers */
         case 'update_tier':            return updateTier(body);
         case 'set_hours_goal':         return setHoursGoal(body);
+        case 'upload_ymca_form':       return uploadYMCAForm(body);
         default:
             throw new Error('Unknown action: ' + body.action);
     }
@@ -299,6 +302,10 @@ function createEvent(b) {
         b.signupCloseDate || '',
         b.instructions    || '',
         b.chapterLabel    || '',
+        b.cardColor       || '',
+        b.cardDeco        || '',
+        b.cardLabel       || '',
+        b.requiresYMCA    || 'FALSE',
     ]);
     return 'Event created: ' + b.eventName;
 }
@@ -323,6 +330,10 @@ function editEvent(b) {
     if (f.signupCloseDate !== undefined) sh.getRange(rowIdx, 9).setValue(f.signupCloseDate);
     if (f.instructions    !== undefined) sh.getRange(rowIdx, 10).setValue(f.instructions);
     if (f.chapterLabel    !== undefined) sh.getRange(rowIdx, 11).setValue(f.chapterLabel);
+    if (f.cardColor       !== undefined) sh.getRange(rowIdx, 12).setValue(f.cardColor);
+    if (f.cardDeco        !== undefined) sh.getRange(rowIdx, 13).setValue(f.cardDeco);
+    if (f.cardLabel       !== undefined) sh.getRange(rowIdx, 14).setValue(f.cardLabel);
+    if (f.requiresYMCA    !== undefined) sh.getRange(rowIdx, 15).setValue(f.requiresYMCA);
     return 'Event updated: ' + b.eventName;
 }
 
@@ -420,6 +431,29 @@ function setHoursGoal(b) {
     if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
     updateCell(SHEET_VOLUNTEERS, found[0], 13, b.goal); // col N (0-indexed 13)
     return 'Hours goal set: ' + b.volunteerName + ' → ' + b.goal;
+}
+
+function uploadYMCAForm(b) {
+    if (!b.fileData) throw new Error('No file data provided.');
+    const decoded = Utilities.newBlob(
+        Utilities.base64Decode(b.fileData),
+        b.mimeType || 'application/pdf',
+        b.fileName || 'ymca_form.pdf'
+    );
+    let folder;
+    try {
+        const it = DriveApp.getFoldersByName('YMCA Forms');
+        folder = it.hasNext() ? it.next() : DriveApp.createFolder('YMCA Forms');
+    } catch(_) {
+        folder = DriveApp.getRootFolder();
+    }
+    const file = folder.createFile(decoded);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const url = file.getUrl();
+    const found = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
+    if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
+    updateCell(SHEET_VOLUNTEERS, found[0], 14, url); // col O (0-indexed 14)
+    return url;
 }
 
 /* ── FORM SUBMIT TRIGGER ────────────────────────────────────── */

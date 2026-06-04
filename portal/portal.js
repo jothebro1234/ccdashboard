@@ -100,6 +100,12 @@ function cardAppearance(r){
     const badge=label?`<span class="${badgeCls}"${badgeStyle?` style="${badgeStyle}"`:''}>${esc(label)}</span>`:'';
     return {cls:cls.trim(),style,badge,hex:ca.hex,hasCustom,isExclusive};
 }
+function evCardAppearance(r){
+    // Events: r[11]=CardColor, r[12]=CardDeco, r[13]=CardLabel
+    // cardAppearance reads r[9], r[10], r[11] — remap via proxy array
+    const proxy=Array(9).fill('').concat([r[11]||'',r[12]||'',r[13]||'']);
+    return cardAppearance(proxy);
+}
 function colorDecoPickerHTML(colorId,decoId,colorRowId,decoRowId,selColor,selDeco){
     const colors=[
         {val:'',hex:'#3A72BE',name:'Blue'},
@@ -148,6 +154,63 @@ function initColorDecoPickerEvents(colorId,decoId,colorRowId,decoRowId){
             document.getElementById(decoId).value=btn.dataset.deco;
         };
     });
+}
+function labelPresetsHTML(inputId){
+    const presets=['Kit Assembly','Teaching Session','Leadership Meeting','Community Event','Orientation','Special Guest'];
+    const btns=presets.map(p=>`<button type="button" class="label-preset-btn" data-target="${inputId}" data-val="${esc(p)}">${esc(p)}</button>`).join('');
+    return `<div class="label-preset-row">${btns}</div>`;
+}
+function initLabelPresets(inputId){
+    document.querySelectorAll(`.label-preset-btn[data-target="${inputId}"]`).forEach(btn=>{
+        btn.onclick=()=>{const el=document.getElementById(btn.dataset.target);if(el)el.value=btn.dataset.val;};
+    });
+}
+function showYMCAUploadModal(){
+    const existing=S.user?.ymcaFormURL||'';
+    const html=`
+        <div class="modal-header">
+            <div class="modal-title">🏕️ YMCA Volunteer Form</div>
+            <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="color:var(--text2);font-size:13px;margin-bottom:14px">To register for YMCA-tagged events you must upload a signed YMCA volunteer form. <strong>You only need to do this once</strong> — it unlocks all YMCA events.</p>
+            ${existing?`<div style="margin-bottom:14px;padding:10px 14px;border-radius:8px;background:var(--green-g);border:1.5px solid rgba(52,211,153,.25);font-size:12px;font-weight:700;color:var(--green)">✅ Form already on file — uploading a new one will replace it.</div>`:''}
+            <div class="form-group">
+                <label class="form-label">Select your signed form</label>
+                <input type="file" id="ymca-file-input" accept=".pdf,.jpg,.jpeg,.png" class="form-input" style="padding:8px">
+                <div class="form-hint">Accepted: PDF, JPG, PNG · Max 5 MB</div>
+            </div>
+            <div class="form-err" id="ymca-err" style="margin-top:8px"></div>
+            <div style="display:flex;gap:10px;margin-top:14px">
+                <button class="btn btn-primary" style="flex:1" id="ymca-upload-btn">📤 Upload Form</button>
+            </div>
+        </div>`;
+    const close=openModal(html);
+    document.getElementById('ymca-upload-btn').addEventListener('click',async()=>{
+        const file=document.getElementById('ymca-file-input').files[0];
+        const errEl=document.getElementById('ymca-err');
+        if(!file){errEl.textContent='Please select a file.';return;}
+        if(file.size>5*1024*1024){errEl.textContent='File too large. Max 5 MB.';return;}
+        errEl.textContent='';
+        const btn=document.getElementById('ymca-upload-btn');
+        btn.disabled=true;btn.textContent='Uploading…';
+        try{await doUploadYMCAForm(file,close);}
+        catch(e){errEl.textContent=e.message;btn.disabled=false;btn.textContent='📤 Upload Form';}
+    });
+}
+async function doUploadYMCAForm(file,closeFn){
+    const fileData=await new Promise((res,rej)=>{
+        const r=new FileReader();
+        r.onload=e=>res(e.target.result.split(',')[1]);
+        r.onerror=()=>rej(new Error('Could not read file'));
+        r.readAsDataURL(file);
+    });
+    const url=await postAction('upload_ymca_form',{volunteerName:S.user.name,fileData,fileName:file.name,mimeType:file.type});
+    if(url){S.user.ymcaFormURL=url;if(S.data)S.data.ymcaFormURL=url;}
+    toast('YMCA form uploaded! You can now register for YMCA events.','success');
+    if(closeFn)closeFn();
+    if(S.view==='activities')viewActivities();
+    else if(S.view==='progress'||S.view==='dashboard')navigate(S.view);
 }
 /* Returns today as YYYY-MM-DD in the *local* timezone — avoids UTC midnight parse issues */
 function localToday() {
@@ -329,6 +392,7 @@ async function postAction(action,payload) {
     let data;
     try{data=await res.json();}catch(_){return;} // non-JSON response is fine
     if(data&&data.ok===false)throw new Error(data.error||'Server returned an error');
+    return data?.result;
 }
 
 async function loadVolunteerData(name) {
@@ -376,9 +440,12 @@ async function loadVolunteerData(name) {
     S.data.chapRank=(mySchool&&chapIdx>=0)?chapIdx+1:null;
     S.data.chapTotal=chapVols.length;
 
-    // Load hours goal from Volunteers sheet column N (index 13)
+    // Load hours goal (col N=13) and YMCA form URL (col O=14) from volunteer row
     const myVolRow=volRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===lower);
     S.data.hoursGoal=myVolRow?(parseFloat(myVolRow[13])||null):null;
+    const ymcaUrl=myVolRow?(myVolRow[14]||'').trim():'';
+    S.data.ymcaFormURL=ymcaUrl;
+    if(S.user&&ymcaUrl)S.user.ymcaFormURL=ymcaUrl;
 
     S.data.myRegistrations=S.data.curriculum.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
@@ -580,6 +647,7 @@ async function handleGoogleSignIn(credentialResponse) {
                 lead:(volRow[7]||'').trim(),
                 onTimeRate:parseFloat(volRow[10])||null,
                 lastContact:(volRow[11]||'').trim(),
+                ymcaFormURL:(volRow[14]||'').trim(),
             };
         }
 
@@ -991,10 +1059,12 @@ function viewDashboard() {
             const maxVols=parseInt(r[6])||0;
             const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
             const countdown=formatCountdown(closeDate);
-            return `<div class="curr-card ev-card dash-assign-card" data-assign-name="${esc(r[0]||'')}" data-type="event" style="cursor:pointer">
+            const deap=evCardAppearance(r);
+            const dStyle=deap.style?`${deap.style};cursor:pointer`:'cursor:pointer';
+            return `<div class="curr-card ev-card dash-assign-card${deap.cls?' '+deap.cls:''}" data-assign-name="${esc(r[0]||'')}" data-type="event" style="${dStyle}">
                 <div style="display:flex;align-items:flex-start;gap:12px">
                     <div style="flex:1;min-width:0">
-                        <div class="curr-title">${esc(r[0]||'Event')}</div>
+                        ${deap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Event')}</div>${deap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Event')}</div>`}
                         <div class="curr-meta" style="margin-top:4px">📅 ${fmtDateTimeStr(evDate)} · ⏱ ${esc(String(r[2]||0))}h credit</div>
                         ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate)}</div>`:''}
                         ${done?`<div class="curr-waiting">⏳ Waiting for hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots</div>`}
@@ -1538,7 +1608,26 @@ function viewMyProgress() {
             </div>
         </div>
         <div class="section-title">TIER JOURNEY</div>
-        <div class="progress-journey">${tierHTML}</div>`;
+        <div class="progress-journey">${tierHTML}</div>
+        <div class="section-title" style="margin-top:24px">REQUIRED FORMS</div>
+        <div class="ymca-form-row">
+            <div style="font-size:18px">🏕️</div>
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:700;color:var(--text);font-size:13px">YMCA Volunteer Form</div>
+                <div style="font-size:11px;color:var(--textm);margin-top:2px">Required to register for YMCA-tagged events · upload once, unlocks all</div>
+            </div>
+            ${S.data.ymcaFormURL||S.user?.ymcaFormURL
+                ?`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                    <span style="font-size:11px;font-weight:700;color:var(--green);background:var(--green-g);border:1px solid rgba(52,211,153,.3);border-radius:100px;padding:3px 10px">✅ On file</span>
+                    <a href="${esc(S.data.ymcaFormURL||S.user?.ymcaFormURL||'')}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">View</a>
+                    <button class="btn btn-ghost btn-sm" id="ymca-reupload-btn">Re-upload</button>
+                </div>`
+                :`<button class="btn btn-primary btn-sm" id="ymca-upload-progress-btn">📤 Upload Form</button>`
+            }
+        </div>`;
+    // Attach Required Forms events
+    document.getElementById('ymca-upload-progress-btn')?.addEventListener('click',showYMCAUploadModal);
+    document.getElementById('ymca-reupload-btn')?.addEventListener('click',showYMCAUploadModal);
 }
 
 function buildTierCriteria(tier,completed,current,stats) {
@@ -2414,6 +2503,7 @@ function evCardHTML(r,lowerName) {
     const closeDate=r[8]||'';
     const instructions=r[9]||'';
     const chapterLabel=r[10]||'';
+    const eap=evCardAppearance(r);
     const closed=closeDate&&toDateStr(closeDate)<localToday();
     const done=isCompleted(evDate);
     const isCredited=credited.some(n=>n.toLowerCase()===lowerName);
@@ -2433,9 +2523,13 @@ function evCardHTML(r,lowerName) {
     const signupCloseHTML=!done&&!closed&&closeDate
         ?`<div class="curr-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate)}</strong></div>`:'';
 
+    const requiresYMCA=isChecked(r[14]);
+    const hasYMCAForm=!!(S.user?.ymcaFormURL);
+
     const tags=[];
     if(isAssembly)tags.push('<span class="ev-tag ev-tag-assembly">Assembly</span>');
     if(isLeadership)tags.push('<span class="ev-tag ev-tag-leadership">Leadership</span>');
+    if(requiresYMCA)tags.push('<span class="ev-tag ev-tag-ymca">🏕️ YMCA</span>');
     const tagsHTML=tags.length?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">${tags.join('')}</div>`:'';
 
     const chapterBadge=chapterLabel?`<span class="chapter-label-badge">🏫 ${esc(chapterLabel)}</span>`:'';
@@ -2467,7 +2561,10 @@ function evCardHTML(r,lowerName) {
 
     let actionHTML='';
     if(!isCredited){
-        if(!closed&&!isRegistered&&!isFull){
+        const ymcaBlocked=requiresYMCA&&!hasYMCAForm&&!isRegistered;
+        if(!closed&&ymcaBlocked){
+            actionHTML=`<button class="btn btn-sm ev-ymca-btn" style="background:rgba(212,150,14,.12);border:1.5px solid rgba(212,150,14,.35);color:#b87000" data-name="${esc(name)}">🏕️ Upload YMCA Form to Register</button>`;
+        } else if(!closed&&!isRegistered&&!isFull){
             actionHTML=`<button class="btn btn-primary btn-sm ev-reg-btn" data-name="${esc(name)}" data-vol="${esc(S.user?.name||'')}">✋ Register</button>`;
         } else if(!closed&&isRegistered){
             actionHTML=`<button class="btn btn-ghost btn-sm ev-unreg-btn" data-name="${esc(name)}" data-vol="${esc(S.user?.name||'')}">✕ Unregister</button>`;
@@ -2479,12 +2576,13 @@ function evCardHTML(r,lowerName) {
     }
 
     const cardCls=done?'curr-completed':closed&&!isCredited?'curr-locked':'';
-    return `<div class="curr-card ev-card ${cardCls} ${isCredited?'curr-credited':''} curr-clickable" data-name="${esc(name)}" data-type="event">
+    const cardStyle=eap.style||(isCredited?'':'');
+    return `<div class="curr-card ev-card ${cardCls} ${isCredited?'curr-credited':''} curr-clickable${eap.cls?' '+eap.cls:''}" data-name="${esc(name)}" data-type="event"${cardStyle?` style="${cardStyle}"`:''}>`+`
         <div style="display:flex;align-items:flex-start;gap:12px">
             <div style="flex:1;min-width:0">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                     <div class="curr-title">${esc(name)}</div>
-                    ${chapterBadge}
+                    ${chapterBadge}${eap.badge}
                 </div>
                 <div class="curr-meta" style="margin-top:5px">📅 ${fmtDateTimeStr(evDate)} · ⏱ ${esc(hours)}h credit</div>
                 ${tagsHTML}
@@ -2622,6 +2720,10 @@ function attachActivitiesEvents() {
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✕ Unregister';}
         };
     });
+    // YMCA gate button — prompts upload
+    document.querySelectorAll('.ev-ymca-btn').forEach(btn=>{
+        btn.onclick=e=>{e.stopPropagation();showYMCAUploadModal();};
+    });
     // Event register/unregister
     document.querySelectorAll('.ev-reg-btn').forEach(btn=>{
         btn.onclick=async()=>{
@@ -2668,11 +2770,12 @@ function dirPostEventHTML() {
             :closed?'<span class="curr-lock-badge">🔒 Closed</span>'
             :`<span class="curr-open-badge">Open · ${esc(formatCountdown(closeDate))}</span>`;
         const chap=r[10]?`<span class="chapter-label-badge" style="font-size:10px">🏫 ${esc(r[10])}</span>`:'';
-        return `<div class="curr-card ev-card">
+        const eap=evCardAppearance(r);
+        return `<div class="curr-card ev-card${eap.cls?' '+eap.cls:''}"${eap.style?` style="${eap.style}"`:''}>`+`
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-                        <div class="curr-title">${esc(r[0]||'')}</div>${chap}
+                        <div class="curr-title">${esc(r[0]||'')}</div>${chap}${eap.badge}
                     </div>
                     <div class="curr-meta">${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
                 </div>
@@ -2730,6 +2833,18 @@ function dirPostEventHTML() {
                         <label class="form-label">Instructions</label>
                         <textarea class="form-textarea" id="pe-instructions" style="min-height:80px" placeholder="What volunteers need to know, what to bring, etc."></textarea>
                     </div>
+                    ${colorDecoPickerHTML('pe-color','pe-deco','pe-color-row','pe-deco-row','','')}
+                    <div class="form-group">
+                        <label class="form-label">Card Label <span style="font-weight:400;color:var(--textm)">(optional badge on card)</span></label>
+                        <input class="form-input" id="pe-label" placeholder="e.g. Priority · New" maxlength="30">
+                        ${labelPresetsHTML('pe-label')}
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                            <input type="checkbox" id="pe-ymca" style="width:16px;height:16px;accent-color:var(--gold)">
+                            🏕️ Requires YMCA Form <span style="font-size:11px;font-weight:400;color:var(--textm)">(volunteers must upload signed YMCA form to register)</span>
+                        </label>
+                    </div>
                     <div class="form-group">
                         <label class="form-label">Chapter Label ${isChapRep?'(auto-filled)':''}</label>
                         ${buildChapComboHTML('pe-chapter',chapSchool)}
@@ -2748,6 +2863,8 @@ function dirPostEventHTML() {
 
 function attachPostEventEvents() {
     initChapCombo('pe-chapter', S.chapData?.school||'', S.role==='chapter_rep');
+    initColorDecoPickerEvents('pe-color','pe-deco','pe-color-row','pe-deco-row');
+    initLabelPresets('pe-label');
     document.getElementById('pe-submit-btn')?.addEventListener('click',async()=>{
         const name=document.getElementById('pe-name').value.trim();
         const eventDate=document.getElementById('pe-date').value;
@@ -2758,17 +2875,22 @@ function attachPostEventEvents() {
         const isLeadership=document.getElementById('pe-leadership').checked?'TRUE':'FALSE';
         const instructions=document.getElementById('pe-instructions').value;
         const chapterLabel=document.getElementById('pe-chapter').value.trim();
+        const cardColor=document.getElementById('pe-color').value;
+        const cardDeco=document.getElementById('pe-deco').value;
+        const cardLabel=document.getElementById('pe-label').value.trim();
+        const requiresYMCA=document.getElementById('pe-ymca').checked?'TRUE':'FALSE';
         const err=document.getElementById('pe-err');
         if(!name||!eventDate||!signupCloseDate||!hours||!maxVolunteers){err.textContent='All required fields must be filled.';return;}
         err.textContent='';
         const btn=document.getElementById('pe-submit-btn');
         btn.disabled=true;btn.textContent='Posting…';
         try {
-            await postAction('create_event',{eventName:name,eventDate,signupCloseDate,hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,registeredList:''});
+            await postAction('create_event',{eventName:name,eventDate,signupCloseDate,hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,cardColor,cardDeco,cardLabel,requiresYMCA,registeredList:''});
             toast(`"${name}" posted!`,'success');
-            ['pe-name','pe-date','pe-close','pe-hours','pe-max','pe-instructions'].forEach(id=>{document.getElementById(id).value='';});
+            ['pe-name','pe-date','pe-close','pe-hours','pe-max','pe-instructions','pe-label'].forEach(id=>{document.getElementById(id).value='';});
             document.getElementById('pe-assembly').checked=false;
             document.getElementById('pe-leadership').checked=false;
+            document.getElementById('pe-ymca').checked=false;
             // Restore chapter label for chapter_rep
             if(S.role==='chapter_rep')document.getElementById('pe-chapter').value=S.chapData?.school||'';
             await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
@@ -2847,6 +2969,18 @@ function showEditEvent(r) {
                         <input class="form-input" type="number" id="ee-max" value="${esc(r[6]||'')}" min="1">
                     </div>
                 </div>
+                ${colorDecoPickerHTML('ee-color','ee-deco','ee-color-row','ee-deco-row',r[11]||'',r[12]||'')}
+                <div class="form-group">
+                    <label class="form-label">Card Label <span style="font-weight:400;color:var(--textm)">(optional badge)</span></label>
+                    <input class="form-input" id="ee-label" value="${esc(r[13]||'')}" placeholder="e.g. Priority · New" maxlength="30">
+                    ${labelPresetsHTML('ee-label')}
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                        <input type="checkbox" id="ee-ymca" style="width:16px;height:16px;accent-color:var(--gold)"${isChecked(r[14])?' checked':''}>
+                        🏕️ Requires YMCA Form
+                    </label>
+                </div>
                 <div class="form-group">
                     <label class="form-label">Chapter Label</label>
                     ${buildChapComboHTML('ee-chapter',r[10]||'')}
@@ -2861,6 +2995,8 @@ function showEditEvent(r) {
         </div>`;
     const close=openModal(html);
     initChapCombo('ee-chapter', r[10]||'', false);
+    initColorDecoPickerEvents('ee-color','ee-deco','ee-color-row','ee-deco-row');
+    initLabelPresets('ee-label');
     document.getElementById('ee-submit-btn').addEventListener('click',async()=>{
         const eventDate=document.getElementById('ee-date').value;
         const signupCloseDate=document.getElementById('ee-close').value;
@@ -2868,13 +3004,17 @@ function showEditEvent(r) {
         const maxVolunteers=document.getElementById('ee-max').value;
         const chapterLabel=document.getElementById('ee-chapter').value.trim();
         const instructions=document.getElementById('ee-instructions').value;
+        const cardColor=document.getElementById('ee-color').value;
+        const cardDeco=document.getElementById('ee-deco').value;
+        const cardLabel=document.getElementById('ee-label').value.trim();
+        const requiresYMCA=document.getElementById('ee-ymca').checked?'TRUE':'FALSE';
         const err=document.getElementById('ee-err');
         if(!eventDate){err.textContent='Event date is required.';return;}
         err.textContent='';
         const btn=document.getElementById('ee-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            await postAction('edit_event',{eventName:name,fields:{eventDate,signupCloseDate,hours,maxVolunteers,chapterLabel,instructions}});
+            await postAction('edit_event',{eventName:name,fields:{eventDate,signupCloseDate,hours,maxVolunteers,chapterLabel,instructions,cardColor,cardDeco,cardLabel,requiresYMCA}});
             toast(`"${name}" updated!`,'success');
             close();
             await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
