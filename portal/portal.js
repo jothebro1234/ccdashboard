@@ -463,7 +463,7 @@ async function loadVolunteerData(name) {
     S.data.hoursGoal=myVolRow?(parseFloat(myVolRow[13])||null):null;
     const ymcaUrl=myVolRow?(myVolRow[14]||'').trim():'';
     S.data.ymcaFormURL=ymcaUrl;
-    if(S.user&&ymcaUrl)S.user.ymcaFormURL=ymcaUrl;
+    if(S.user)S.user.ymcaFormURL=ymcaUrl; // always sync, even if empty
 
     S.data.myRegistrations=S.data.curriculum.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
