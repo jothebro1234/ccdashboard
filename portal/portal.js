@@ -2475,6 +2475,10 @@ function renderActivitiesList(filter) {
         });
     }
 
+    // DEBUG — remove after YMCA gate is confirmed working
+    console.log('[YMCA debug] upcomingEvs count:',upcomingEvs.length);
+    upcomingEvs.forEach(r=>console.log('[YMCA debug] event:',r[0],'| r.length:',r.length,'| r[14]:',r[14],'| ymcaFormURL:',S.user?.ymcaFormURL));
+
     // Events column (left)
     const evHeader=`<div class="act-col-header">📅 Upcoming Events<span class="act-col-count">${filteredEvs.length}</span></div>`;
     if(filteredEvs.length){
