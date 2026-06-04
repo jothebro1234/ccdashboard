@@ -2405,7 +2405,10 @@ function viewActivities() {
             <button class="panel-tab" data-tab="mine">Mine</button>
             <button class="panel-tab" data-tab="all">All (${total})</button>
         </div>
-        <div id="act-list"></div>`;
+        <div class="act-split">
+            <div id="act-col-events"></div>
+            <div id="act-col-curriculum"></div>
+        </div>`;
 
     document.getElementById('act-refresh-btn').onclick=async()=>{
         const btn=document.getElementById('act-refresh-btn');
@@ -2424,35 +2427,17 @@ function viewActivities() {
 }
 
 function renderActivitiesList(filter) {
-    const listEl=document.getElementById('act-list');
-    if(!listEl)return;
+    const evCol=document.getElementById('act-col-events');
+    const currCol=document.getElementById('act-col-curriculum');
+    if(!evCol||!currCol)return;
+
     const assignments=[...(S.data.curriculum||[])].reverse();
     const upcomingEvs=[...(S.data.upcomingEvents||[])].reverse();
     const lower=(S.user?.name||'').toLowerCase();
 
-    if(filter==='all'){
-        const assignRows=assignments.map(r=>currSimpleRowHTML(r)).join('');
-        const evRows=upcomingEvs.map(r=>evSimpleRowHTML(r)).join('');
-        if(!assignRows&&!evRows){listEl.innerHTML=mascotEmpty('No activities yet','New assignments and events will show up here.');return;}
-        listEl.innerHTML=(assignRows?`<div class="activities-section-label">Curriculum Assignments</div>${assignRows}`:'')
-            +(evRows?`<div class="activities-section-label" style="margin-top:16px">Upcoming Events</div>${evRows}`:'');
-        listEl.querySelectorAll('.curr-simple-row').forEach(row=>{
-            row.addEventListener('click',()=>{
-                const name=row.dataset.name;
-                if(row.dataset.type==='event'){
-                    const r=upcomingEvs.find(x=>(x[0]||'').trim()===name.trim());
-                    if(r)showEventDetail(r);
-                } else {
-                    const r=assignments.find(x=>(x[0]||'').trim()===name.trim());
-                    if(r)showAssignmentDetail(r);
-                }
-            });
-        });
-        return;
-    }
-
     let filteredAssign=assignments;
     let filteredEvs=upcomingEvs;
+
     if(filter==='available'){
         filteredAssign=assignments.filter(r=>!isCompleted(r[1]));
         filteredEvs=upcomingEvs.filter(r=>{
@@ -2472,21 +2457,45 @@ function renderActivitiesList(filter) {
         });
     }
 
-    if(!filteredAssign.length&&!filteredEvs.length){
-        listEl.innerHTML=mascotEmpty('Nothing here yet','Curie\'s looking too — check back soon!');
+    // Events column (left)
+    const evHeader=`<div class="act-col-header">📅 Upcoming Events<span class="act-col-count">${filteredEvs.length}</span></div>`;
+    if(filteredEvs.length){
+        const cards=filter==='all'
+            ?filteredEvs.map(r=>evSimpleRowHTML(r)).join('')
+            :filteredEvs.map(r=>evCardHTML(r,lower)).join('');
+        evCol.innerHTML=evHeader+cards;
+    } else {
+        evCol.innerHTML=evHeader+`<div class="muted text-small" style="padding:10px 0">No events to show.</div>`;
+    }
+
+    // Curriculum column (right)
+    const currHeader=`<div class="act-col-header">📚 Curriculum<span class="act-col-count">${filteredAssign.length}</span></div>`;
+    if(filteredAssign.length){
+        const cards=filter==='all'
+            ?filteredAssign.map(r=>currSimpleRowHTML(r)).join('')
+            :filteredAssign.map(r=>currCardHTML(r,lower)).join('');
+        currCol.innerHTML=currHeader+cards;
+    } else {
+        currCol.innerHTML=currHeader+`<div class="muted text-small" style="padding:10px 0">No assignments to show.</div>`;
+    }
+
+    // Wire up simple-row clicks (All tab)
+    if(filter==='all'){
+        document.querySelectorAll('.curr-simple-row').forEach(row=>{
+            row.addEventListener('click',()=>{
+                const name=row.dataset.name;
+                if(row.dataset.type==='event'){
+                    const r=upcomingEvs.find(x=>(x[0]||'').trim()===name.trim());
+                    if(r)showEventDetail(r);
+                } else {
+                    const r=assignments.find(x=>(x[0]||'').trim()===name.trim());
+                    if(r)showAssignmentDetail(r);
+                }
+            });
+        });
         return;
     }
 
-    let html='';
-    if(filteredAssign.length){
-        html+=`<div class="activities-section-label">Curriculum Assignments</div>`;
-        html+=filteredAssign.map(r=>currCardHTML(r,lower)).join('');
-    }
-    if(filteredEvs.length){
-        html+=`<div class="activities-section-label" style="margin-top:${filteredAssign.length?20:0}px">Upcoming Events</div>`;
-        html+=filteredEvs.map(r=>evCardHTML(r,lower)).join('');
-    }
-    listEl.innerHTML=html;
     attachActivitiesEvents();
     startCountdownTimers();
 }
