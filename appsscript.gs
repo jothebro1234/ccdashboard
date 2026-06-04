@@ -115,6 +115,9 @@ function datePartStr(val) {
 /* ── doPost ─────────────────────────────────────────────────── */
 function doPost(e) {
     try {
+        // Migrate any existing sheets that are missing new header columns
+        ensureMissingHeaders(getSheet(SHEET_EVENTS),     'Events');
+        ensureMissingHeaders(getSheet(SHEET_VOLUNTEERS), 'Volunteers');
         const body   = JSON.parse(e.postData.contents);
         const result = route(body);
         return ContentService.createTextOutput(JSON.stringify({ ok: true, result }))
