@@ -60,20 +60,36 @@ function initSheetHeaders(sh, name) {
     if (headers[name]) sh.appendRow(headers[name]);
 }
 
-/* Fills in any missing header cells in row 1 for sheets that existed before new columns were added */
-function ensureMissingHeaders(sh, name) {
-    const expected = {
-        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'],
-        Volunteers: ['Name','Discord','School','Avatar','Email','Track','Tier','Lead','CyclesCompleted','SelectYourMainSpecialty','OnTimeRate','LastContact','TotalHours','HoursGoal','YMCAFormURL'],
-    }[name];
-    if (!expected) return;
-    const lastCol = Math.max(sh.getLastColumn(), expected.length);
-    const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
-    expected.forEach(function(col, i) {
-        if (!current[i] || current[i].toString().trim() === '') {
-            sh.getRange(1, i + 1).setValue(col);
+/* Returns the 1-based column index of headerName, creating it at the end if missing */
+function findOrAddColumn(sh, headerName) {
+    const lastCol = sh.getLastColumn();
+    if (lastCol > 0) {
+        const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+        for (var i = 0; i < headers.length; i++) {
+            if (headers[i].toString().trim() === headerName) return i + 1;
         }
-    });
+    }
+    const newCol = lastCol + 1;
+    sh.getRange(1, newCol).setValue(headerName);
+    return newCol;
+}
+
+/* Fills in any missing header cells for sheets that existed before new columns were added */
+function ensureMissingHeaders(sh, name) {
+    if (name === 'Events') {
+        // Events uses fixed positions — safe because it's managed entirely by this app
+        const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'];
+        const lastCol = Math.max(sh.getLastColumn(), expected.length);
+        const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+        expected.forEach(function(col, i) {
+            if (!current[i] || current[i].toString().trim() === '') {
+                sh.getRange(1, i + 1).setValue(col);
+            }
+        });
+    } else if (name === 'Volunteers') {
+        // Volunteers sheet may have extra columns from Google Forms — append-only
+        findOrAddColumn(sh, 'YMCAFormURL');
+    }
 }
 
 /* Find a row by matching col (0-indexed); returns [rowIndex_1based, rowData] or null */
@@ -482,7 +498,8 @@ function uploadYMCAForm(b) {
     const url = file.getUrl();
     const found = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
     if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
-    updateCell(SHEET_VOLUNTEERS, found[0], 14, url); // col O (0-indexed 14)
+    const ymcaCol = findOrAddColumn(getSheet(SHEET_VOLUNTEERS), 'YMCAFormURL');
+    updateCell(SHEET_VOLUNTEERS, found[0], ymcaCol - 1, url); // updateCell uses 0-indexed col
     return url;
 }
 

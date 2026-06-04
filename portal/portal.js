@@ -458,10 +458,12 @@ async function loadVolunteerData(name) {
     S.data.chapRank=(mySchool&&chapIdx>=0)?chapIdx+1:null;
     S.data.chapTotal=chapVols.length;
 
-    // Load hours goal (col N=13) and YMCA form URL (col O=14) from volunteer row
+    // Load hours goal and YMCA form URL — find YMCAFormURL column by header name
+    const volHeaders=(volRows[0]||[]).map(h=>(h||'').trim());
+    const ymcaColIdx=volHeaders.indexOf('YMCAFormURL');
     const myVolRow=volRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===lower);
     S.data.hoursGoal=myVolRow?(parseFloat(myVolRow[13])||null):null;
-    const ymcaUrl=myVolRow?(myVolRow[14]||'').trim():'';
+    const ymcaUrl=myVolRow&&ymcaColIdx>=0?(myVolRow[ymcaColIdx]||'').trim():'';
     S.data.ymcaFormURL=ymcaUrl;
     if(S.user)S.user.ymcaFormURL=ymcaUrl; // always sync, even if empty
 
@@ -648,6 +650,8 @@ async function handleGoogleSignIn(credentialResponse) {
             fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
         ]);
         const emailCol=CONFIG.EMAIL_COL??4;
+        const volHeaders=(volRows[0]||[]).map(h=>(h||'').trim());
+        const ymcaColIdx=volHeaders.indexOf('YMCAFormURL');
         const volRow=volRows.slice(1).find(r=>(r[emailCol]||'').trim().toLowerCase()===email);
         const dirRow=dirRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
         const chapRow=chapRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
@@ -665,7 +669,7 @@ async function handleGoogleSignIn(credentialResponse) {
                 lead:(volRow[7]||'').trim(),
                 onTimeRate:parseFloat(volRow[10])||null,
                 lastContact:(volRow[11]||'').trim(),
-                ymcaFormURL:(volRow[14]||'').trim(),
+                ymcaFormURL:ymcaColIdx>=0?(volRow[ymcaColIdx]||'').trim():'',
             };
         }
 
@@ -2474,10 +2478,6 @@ function renderActivitiesList(filter) {
             return reg.includes(lower)||cred.includes(lower);
         });
     }
-
-    // DEBUG — remove after YMCA gate is confirmed working
-    console.log('[YMCA debug] upcomingEvs count:',upcomingEvs.length);
-    upcomingEvs.forEach(r=>console.log('[YMCA debug] event:',r[0],'| r.length:',r.length,'| r[14]:',r[14],'| ymcaFormURL:',S.user?.ymcaFormURL));
 
     // Events column (left)
     const evHeader=`<div class="act-col-header">📅 Upcoming Events<span class="act-col-count">${filteredEvs.length}</span></div>`;
