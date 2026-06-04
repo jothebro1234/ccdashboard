@@ -224,7 +224,7 @@ async function doUploadYMCAForm(file,closeFn){
         r.readAsDataURL(file);
     });
     const url=await postAction('upload_ymca_form',{volunteerName:S.user.name,fileData,fileName:file.name,mimeType:file.type});
-    if(url){S.user.ymcaFormURL=url;if(S.data)S.data.ymcaFormURL=url;}
+    if(url){S.user.ymcaFormURL=url;if(S.data)S.data.ymcaFormURL=url;saveSession();}
     toast('YMCA form uploaded! You can now register for YMCA events.','success');
     if(closeFn)closeFn();
     if(S.view==='activities')viewActivities();
