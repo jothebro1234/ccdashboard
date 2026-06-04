@@ -2469,7 +2469,7 @@ function renderActivitiesList(filter) {
     }
 
     // Curriculum column (right)
-    const currHeader=`<div class="act-col-header">📚 Curriculum<span class="act-col-count">${filteredAssign.length}</span></div>`;
+    const currHeader=`<div class="act-col-header">📚 Curriculum Opportunities<span class="act-col-count">${filteredAssign.length}</span></div>`;
     if(filteredAssign.length){
         const cards=filter==='all'
             ?filteredAssign.map(r=>currSimpleRowHTML(r)).join('')
