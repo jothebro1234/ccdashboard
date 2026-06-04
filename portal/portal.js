@@ -464,8 +464,11 @@ async function loadVolunteerData(name) {
     const myVolRow=volRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===lower);
     S.data.hoursGoal=myVolRow?(parseFloat(myVolRow[13])||null):null;
     const ymcaUrl=myVolRow&&ymcaColIdx>=0?(myVolRow[ymcaColIdx]||'').trim():'';
-    S.data.ymcaFormURL=ymcaUrl;
-    if(S.user)S.user.ymcaFormURL=ymcaUrl; // always sync, even if empty
+    // Prefer sheet value when present; keep existing in-memory value if sheet returns empty
+    // (gviz CSV caches for ~2 min, so a fresh upload may not appear immediately)
+    const resolvedYmca=ymcaUrl||(S.data.ymcaFormURL||S.user?.ymcaFormURL||'');
+    S.data.ymcaFormURL=resolvedYmca;
+    if(S.user)S.user.ymcaFormURL=resolvedYmca; // always sync, even if empty
 
     S.data.myRegistrations=S.data.curriculum.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
