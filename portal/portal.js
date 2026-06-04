@@ -167,23 +167,41 @@ function initLabelPresets(inputId){
 }
 function showYMCAUploadModal(){
     const existing=S.user?.ymcaFormURL||'';
+    const formUrl=(CONFIG.YMCA_FORM_URL||'').trim();
+    const downloadStep=formUrl
+        ?`<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border)">
+            <div style="font-size:20px;flex-shrink:0">1️⃣</div>
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:700;font-size:13px;color:var(--text)">Download the YMCA form</div>
+                <div style="font-size:11px;color:var(--textm);margin-top:2px">Open the blank form, print or fill it digitally, then sign it.</div>
+            </div>
+            <a href="${esc(formUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="flex-shrink:0">📄 Open Form</a>
+        </div>`
+        :`<div style="padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border);font-size:12px;color:var(--textm)">1️⃣ &nbsp;Get the YMCA volunteer form from your director, sign it, then upload it below.</div>`;
     const html=`
         <div class="modal-header">
             <div class="modal-title">🏕️ YMCA Volunteer Form</div>
             <button class="modal-close">✕</button>
         </div>
         <div class="modal-body">
-            <p style="color:var(--text2);font-size:13px;margin-bottom:14px">To register for YMCA-tagged events you must upload a signed YMCA volunteer form. <strong>You only need to do this once</strong> — it unlocks all YMCA events.</p>
             ${existing?`<div style="margin-bottom:14px;padding:10px 14px;border-radius:8px;background:var(--green-g);border:1.5px solid rgba(52,211,153,.25);font-size:12px;font-weight:700;color:var(--green)">✅ Form already on file — uploading a new one will replace it.</div>`:''}
-            <div class="form-group">
-                <label class="form-label">Select your signed form</label>
-                <input type="file" id="ymca-file-input" accept=".pdf,.jpg,.jpeg,.png" class="form-input" style="padding:8px">
-                <div class="form-hint">Accepted: PDF, JPG, PNG · Max 5 MB</div>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+                ${downloadStep}
+                <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border)">
+                    <div style="font-size:20px;flex-shrink:0">2️⃣</div>
+                    <div style="font-size:13px;font-weight:700;color:var(--text)">Sign it <span style="font-weight:400;color:var(--textm);font-size:12px">(digital signature or sign by hand &amp; scan/photo)</span></div>
+                </div>
+                <div style="padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border)">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                        <div style="font-size:20px;flex-shrink:0">3️⃣</div>
+                        <div style="font-weight:700;font-size:13px;color:var(--text)">Upload your signed form</div>
+                    </div>
+                    <input type="file" id="ymca-file-input" accept=".pdf,.jpg,.jpeg,.png" class="form-input" style="padding:8px">
+                    <div class="form-hint" style="margin-top:4px">Accepted: PDF, JPG, PNG · Max 5 MB</div>
+                </div>
             </div>
-            <div class="form-err" id="ymca-err" style="margin-top:8px"></div>
-            <div style="display:flex;gap:10px;margin-top:14px">
-                <button class="btn btn-primary" style="flex:1" id="ymca-upload-btn">📤 Upload Form</button>
-            </div>
+            <div class="form-err" id="ymca-err"></div>
+            <button class="btn btn-primary" style="width:100%;margin-top:4px" id="ymca-upload-btn">📤 Submit Form</button>
         </div>`;
     const close=openModal(html);
     document.getElementById('ymca-upload-btn').addEventListener('click',async()=>{
