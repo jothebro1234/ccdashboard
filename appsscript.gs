@@ -60,6 +60,22 @@ function initSheetHeaders(sh, name) {
     if (headers[name]) sh.appendRow(headers[name]);
 }
 
+/* Fills in any missing header cells in row 1 for sheets that existed before new columns were added */
+function ensureMissingHeaders(sh, name) {
+    const expected = {
+        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'],
+        Volunteers: ['Name','Discord','School','Avatar','Email','Track','Tier','Lead','CyclesCompleted','SelectYourMainSpecialty','OnTimeRate','LastContact','TotalHours','HoursGoal','YMCAFormURL'],
+    }[name];
+    if (!expected) return;
+    const lastCol = Math.max(sh.getLastColumn(), expected.length);
+    const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    expected.forEach(function(col, i) {
+        if (!current[i] || current[i].toString().trim() === '') {
+            sh.getRange(1, i + 1).setValue(col);
+        }
+    });
+}
+
 /* Find a row by matching col (0-indexed); returns [rowIndex_1based, rowData] or null */
 function findRow(sheetName, col, value) {
     const sh  = getSheet(sheetName);
@@ -290,6 +306,7 @@ function recordEvent(b) {
 
 function createEvent(b) {
     const sh = getSheet(SHEET_EVENTS);
+    ensureMissingHeaders(sh, 'Events');
     sh.appendRow([
         b.eventName,
         b.eventDate       || '',
@@ -313,6 +330,7 @@ function createEvent(b) {
 function editEvent(b) {
     const sh = SS.getSheetByName(SHEET_EVENTS);
     if (!sh) throw new Error('Events sheet not found.');
+    ensureMissingHeaders(sh, 'Events');
     const data = sh.getDataRange().getValues();
 
     let rowIdx = -1;
@@ -443,6 +461,7 @@ function setHoursGoal(b) {
 
 function uploadYMCAForm(b) {
     if (!b.fileData) throw new Error('No file data provided.');
+    ensureMissingHeaders(getSheet(SHEET_VOLUNTEERS), 'Volunteers');
     const decoded = Utilities.newBlob(
         Utilities.base64Decode(b.fileData),
         b.mimeType || 'application/pdf',
