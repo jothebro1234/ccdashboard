@@ -869,17 +869,34 @@ function showCinematic() {
 /* ═══════════════════════════════════════════════════════════════
    SIDEBAR
    ═══════════════════════════════════════════════════════════════ */
+// Lightweight context helpers — swap user/role without reloading data
+function _setVolContext() {
+    if(!S.volUser||S.role==='volunteer') return;
+    S._dirUser=S._dirUser||S.user;
+    S.user=S.volUser; S.role='volunteer';
+    renderUserInfo();
+}
+function _setDirContext() {
+    if(!S._dirUser||S.role!=='volunteer') return;
+    S.user=S._dirUser; S.role=S.dirRole;
+    renderUserInfo();
+}
+
 function renderSidebar() {
     const nav=document.getElementById('sb-nav');
     const role=S.role;
+    // Directors who also have a volunteer record get a unified sidebar
+    const isUnified=!!(S.dirRole&&S.volUser);
     let mainItems=[], othersItems=[];
-    if(role==='volunteer'){
-        const userSchool=(S.user?.school||'').toLowerCase().trim();
-        const hasChapter=userSchool&&(S.data.chapters||[]).some(r=>(r[2]||'').trim().toLowerCase()===userSchool);
+
+    if(role==='volunteer'||isUnified){
+        const school=((isUnified?S.volUser:S.user)?.school||'').toLowerCase().trim();
+        const hasChapter=school&&(S.data.chapters||[]).some(r=>(r[2]||'').trim().toLowerCase()===school);
         mainItems=[
             {id:'activities',icon:'📚',label:'Activities'},
             {id:'calendar',  icon:'📅',label:'Calendar'},
         ];
+        if(isUnified) mainItems.push({id:'director',icon:'⚙️',label:'Director Panel'});
         othersItems=[
             ...(hasChapter?[{id:'chapter',icon:'🏫',label:'My Chapter'}]:[]),
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
@@ -895,15 +912,16 @@ function renderSidebar() {
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     } else {
+        // Pure director (no volunteer record)
         mainItems=[
-            {id:'dashboard', icon:'🏠',label:'Overview'},
             {id:'director',  icon:'⚙️',label:'Director Panel'},
             {id:'calendar',  icon:'📅',label:'Calendar'},
-            {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
+        othersItems=[{id:'leaderboard',icon:'🥇',label:'Leaderboard'}];
     }
-    const activeView=S.view||'dashboard';
-    const newAct=(role==='volunteer'||role==='chapter_rep')?getNewActivitiesCount():0;
+
+    const activeView=S.view||'director';
+    const newAct=(role==='volunteer'||role==='chapter_rep'||isUnified)?getNewActivitiesCount():0;
     if(othersItems.some(it=>it.id===activeView)) _othersExpanded=true;
 
     const mainHTML=mainItems.map(it=>{
@@ -931,7 +949,15 @@ function renderSidebar() {
     nav.innerHTML=mainHTML+othersHTML;
 
     nav.querySelectorAll('.sb-item[data-view]').forEach(btn=>{
-        btn.onclick=()=>{navigate(btn.dataset.view);closeMobileSidebar();};
+        btn.onclick=()=>{
+            const v=btn.dataset.view;
+            if(isUnified){
+                if(v==='director') _setDirContext();
+                else _setVolContext();
+            }
+            navigate(v);
+            closeMobileSidebar();
+        };
     });
     document.getElementById('sb-others-toggle')?.addEventListener('click',()=>{
         _othersExpanded=!_othersExpanded;
@@ -942,7 +968,11 @@ function renderSidebar() {
     });
 
     const brand=document.getElementById('sb-brand');
-    if(brand) brand.onclick=()=>{navigate('dashboard');closeMobileSidebar();};
+    if(brand) brand.onclick=()=>{
+        if(isUnified) _setVolContext();
+        navigate(isUnified||role==='volunteer'?'dashboard':'director');
+        closeMobileSidebar();
+    };
 }
 
 function activateSidebarItem(view) {
@@ -951,6 +981,7 @@ function activateSidebarItem(view) {
     });
     const brand=document.getElementById('sb-brand');
     if(brand) brand.classList.toggle('active', view==='dashboard');
+    // 'overview' is accessed via profile click — no nav item to highlight
 }
 
 const PALETTE=['#38bdf8','#a78bfa','#22d3ee','#f472b6','#fb923c','#34d399','#fbbf24','#818cf8'];
@@ -975,11 +1006,12 @@ function renderUserInfo() {
     const el=document.getElementById('sb-user');
     const u=S.user||{};
     const track=u.track?(CONFIG.TRACKS[u.track]||{}):{};
+    const isDir=!!(S.dirRole);
     el.innerHTML=`
         <div class="sb-av">${avHTML(u.name||'?',u.avatar,34)}</div>
-        <div style="min-width:0;flex:1">
+        <div style="min-width:0;flex:1;${isDir?'cursor:pointer':''}" ${isDir?`onclick="_setDirContext();navigate('overview')"`:''}  title="${isDir?'View director overview':''}">
             <div class="sb-name">${esc(u.name||'Director')}</div>
-            <div class="sb-meta">${u.track?`${track.icon||''} ${combinedTrackLabel(u)}`:(CONFIG.DIRECTORS[S.role]||{}).title||''}</div>
+            <div class="sb-meta">${u.track?`${track.icon||''} ${combinedTrackLabel(u)}`:(CONFIG.DIRECTORS[S.role]||CONFIG.DIRECTORS[S.dirRole]||{}).title||''}</div>
         </div>
         <button class="sb-logout-btn" title="Sign out" onclick="logout()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15">
@@ -1004,7 +1036,8 @@ function navigate(view,sub) {
         case 'curriculum':  viewActivities();break; // alias for backward compat
         case 'progress':    viewMyProgress();break;
         case 'leaderboard': viewLeaderboard();break;
-        case 'director':    viewDirectorPanel(sub||'roster');break;
+        case 'director':    viewDirectorPanel(sub||'post-event');break;
+        case 'overview':    viewDirectorOverview();break;
         case 'chapter':     viewMyChapter();break;
         case 'calendar':    viewCalendar();break;
         default:viewDashboard();
@@ -1208,9 +1241,6 @@ function viewDashboard() {
     const trackColor=(track.color)||'var(--blue)';
     const trackColorG=(track.glow)||'rgba(56,189,248,.12)';
 
-    // Switch to director view button (if dirRole is set meaning they're also a director)
-    const switchBtn=S.dirRole?`<button class="btn btn-ghost btn-sm view-toggle-btn" onclick="switchToDirectorView()">🎩 Director View</button>`:'';
-
     root.innerHTML=`
         <div class="view-header">
             <div>
@@ -1218,7 +1248,6 @@ function viewDashboard() {
                 <div class="view-subtitle"></div>
             </div>
             <div class="view-actions">
-                ${switchBtn}
                 <button class="btn btn-ghost btn-sm" onclick="refreshDashboard()" title="Refresh data">🔄 Refresh</button>
             </div>
         </div>
@@ -1317,15 +1346,13 @@ function viewDirectorOverview() {
     const upcomingEvents=S.data.upcomingEvents||[];
     const vols=S.data.volunteers||[];
     const openAssignments=assignments.filter(r=>!isLocked(r[5]));
-    // Switch to volunteer view button
-    const switchBtn=S.volUser?`<button class="btn btn-ghost btn-sm view-toggle-btn" onclick="switchToVolunteerView()">👤 Volunteer View</button>`:'';
     root.innerHTML=`
         <div class="view-header">
             <div>
                 <div class="view-title">Overview 🏠</div>
                 <div class="view-subtitle">${esc(roleInfo.title)} · ${esc(roleInfo.track||'All Tracks')}</div>
             </div>
-            <div class="view-actions">${switchBtn}</div>
+            <div class="view-actions"></div>
         </div>
         <div class="card-grid card-grid-3 mb-20">
             <div class="stat-card">
@@ -1837,16 +1864,12 @@ function viewDirectorPanel(activeTab) {
     const roleInfo=CONFIG.DIRECTORS[r]||{title:roleLabel(r),track:getDirTrack(r)};
 
     const tabs=[
-        {id:'roster',            label:'👥 Roster'},
-        ...(canPostAssignment(r)?[{id:'post-assignment',label:'📋 Post Assignment'}]:[]),
-        ...(canGiveHoursAssign(r)?[{id:'give-hours',    label:'✅ Give Hours'}]:[]),
-        ...(canPostEvent(r)?      [{id:'post-event',    label:'📅 Post Event'}]:[]),
-        ...(canGiveHoursEvent(r)? [{id:'give-event-hours',label:'🎓 Give Event Hours'}]:[]),
-        ...(canRecordAdHoc(r)?    [{id:'record-event',  label:'📝 Record Ad-Hoc'}]:[]),
-        ...(canManageTiersRole(r)?[{id:'manage-tiers',  label:'👑 Manage Tiers'}]:[]),
+        ...(canPostEvent(r)?      [{id:'post-event',       label:'📅 Post Event'}]:[]),
+        ...(canPostAssignment(r)? [{id:'post-assignment',  label:'📋 Post Assignment'}]:[]),
+        ...(canGiveHoursAssign(r)?[{id:'give-hours',       label:'✅ Give Hours'}]:[]),
+        ...(canGiveHoursEvent(r)? [{id:'give-event-hours', label:'🎓 Give Event Hours'}]:[]),
+        {id:'roster', label:'👥 Roster'},
     ];
-
-    const switchBtn=S.volUser?`<button class="btn btn-ghost btn-sm view-toggle-btn" onclick="switchToVolunteerView()">👤 Volunteer View</button>`:'';
 
     root.innerHTML=`
         <div class="view-header">
@@ -1855,7 +1878,6 @@ function viewDirectorPanel(activeTab) {
                 <div class="view-subtitle">${esc(roleInfo.track||'All Tracks')} · Director View</div>
             </div>
             <div class="view-actions">
-                ${switchBtn}
                 <button class="btn btn-ghost btn-sm" id="dir-refresh-btn">↺ Refresh</button>
             </div>
         </div>
@@ -1885,9 +1907,7 @@ function renderDirPanel(tab) {
         case 'give-hours':      body.innerHTML=dirGiveHoursHTML();       attachGiveHoursEvents();      break;
         case 'post-event':      body.innerHTML=dirPostEventHTML();       attachPostEventEvents();      break;
         case 'give-event-hours':body.innerHTML=dirGiveEventHoursHTML();  attachGiveEventHoursEvents(); break;
-        case 'record-event':    body.innerHTML=dirRecordEventHTML();     attachRecordEventEvents();    break;
-        case 'manage-tiers':    body.innerHTML=dirManageTiersHTML();     attachManageTiersEvents();    break;
-        default:                body.innerHTML=dirRosterHTML();          attachRosterEvents();
+        default:                body.innerHTML=dirPostEventHTML();       attachPostEventEvents();
     }
 }
 
@@ -1897,23 +1917,18 @@ function dirRosterHTML() {
     return `
         <div class="mb-12" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <input class="form-input" id="roster-search" placeholder="Search volunteer…" style="max-width:260px;padding:9px 12px;font-size:13px">
-            <select class="form-select" id="roster-tier" style="max-width:160px;padding:9px 12px;font-size:13px">
-                <option value="">All Tiers</option>
-                ${Object.entries(CONFIG.TIERS).map(([k,t])=>`<option value="${k}">${t.name}</option>`).join('')}
-            </select>
             <span class="muted text-small">${vols.length} volunteer${vols.length!==1?'s':''}</span>
         </div>
         <div class="table-wrap">
         <table class="data-table">
             <thead><tr>
-                <th>Volunteer</th><th>Track</th><th>Tier</th>
+                <th>Volunteer</th><th>Track</th>
                 <th class="col-r">Hours</th><th class="col-r">Curriculum</th><th class="col-r">Events</th><th>Email</th>
             </tr></thead>
             <tbody id="roster-tbody">
-                ${vols.map(v=>`<tr data-name="${esc(v.name.toLowerCase())}" data-tier="${esc(String(v.tier))}">
+                ${vols.map(v=>`<tr data-name="${esc(v.name.toLowerCase())}">
                     <td><div class="td-name">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
                     <td>${trackPill(v.track)}</td>
-                    <td>${tierBadge(v.tier)}</td>
                     <td class="col-r"><span class="td-num">${round1(v.hours)}</span></td>
                     <td class="col-r"><span class="td-num">${v.curricCount}</span></td>
                     <td class="col-r"><span class="td-num">${v.eventsCount}</span></td>
@@ -1926,17 +1941,13 @@ function dirRosterHTML() {
 
 function attachRosterEvents() {
     const search=document.getElementById('roster-search');
-    const tierSel=document.getElementById('roster-tier');
     const filter=()=>{
-        const q=(search?.value||'').toLowerCase(),tier=tierSel?.value||'';
+        const q=(search?.value||'').toLowerCase();
         document.querySelectorAll('#roster-tbody tr').forEach(tr=>{
-            const name=(tr.dataset.name||'');
-            const tierMatch=!tier||(tr.dataset.tier===tier);
-            tr.style.display=(!q||name.includes(q))&&tierMatch?'':'none';
+            tr.style.display=!q||(tr.dataset.name||'').includes(q)?'':'none';
         });
     };
     search?.addEventListener('input',filter);
-    tierSel?.addEventListener('change',filter);
 }
 
 /* ─── POST ASSIGNMENT (DOC) ─────────────────────────────────── */
