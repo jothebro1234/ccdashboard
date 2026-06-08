@@ -15,6 +15,10 @@ const S = {
     chapData: null, // { name, school } fr chapter_rep
 };
 
+let _dashStatsCollapsed = false;
+let _dashRankCollapsed  = false;
+let _othersExpanded     = false;
+
 /* ── Role helpers ─────────────────────────────────────────── */
 const EXEC_ROLES=['president','cef','vp','sec','tres','cpo'];
 function isExecRole(r){return EXEC_ROLES.includes(r);}
@@ -843,37 +847,41 @@ function showCinematic() {
 function renderSidebar() {
     const nav=document.getElementById('sb-nav');
     const role=S.role;
-    let items=[];
+    let mainItems=[], othersItems=[];
     if(role==='volunteer'){
         const userSchool=(S.user?.school||'').toLowerCase().trim();
         const hasChapter=userSchool&&(S.data.chapters||[]).some(r=>(r[2]||'').trim().toLowerCase()===userSchool);
-        items=[
-            {id:'dashboard',  icon:'🏠',label:'Dashboard'},
-            {id:'activities', icon:'📚',label:'Activities'},
+        mainItems=[
+            {id:'activities',icon:'📚',label:'Activities'},
+            {id:'calendar',  icon:'📅',label:'Calendar'},
+        ];
+        othersItems=[
             ...(hasChapter?[{id:'chapter',icon:'🏫',label:'My Chapter'}]:[]),
-            {id:'calendar',   icon:'📅',label:'Calendar'},
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     } else if(role==='chapter_rep'){
-        items=[
-            {id:'dashboard',  icon:'🏠',label:'Dashboard'},
-            {id:'activities', icon:'📚',label:'Activities'},
+        mainItems=[
+            {id:'activities',icon:'📚',label:'Activities'},
+            {id:'director',  icon:'⚙️',label:'Chapter Panel'},
+            {id:'calendar',  icon:'📅',label:'Calendar'},
+        ];
+        othersItems=[
             {id:'chapter',    icon:'🏫',label:'My Chapter'},
-            {id:'director',   icon:'⚙️',label:'Chapter Panel'},
-            {id:'calendar',   icon:'📅',label:'Calendar'},
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     } else {
-        items=[
-            {id:'dashboard',  icon:'🏠',label:'Overview'},
-            {id:'director',   icon:'⚙️',label:'Director Panel'},
-            {id:'calendar',   icon:'📅',label:'Calendar'},
+        mainItems=[
+            {id:'dashboard', icon:'🏠',label:'Overview'},
+            {id:'director',  icon:'⚙️',label:'Director Panel'},
+            {id:'calendar',  icon:'📅',label:'Calendar'},
             {id:'leaderboard',icon:'🥇',label:'Leaderboard'},
         ];
     }
     const activeView=S.view||'dashboard';
     const newAct=(role==='volunteer'||role==='chapter_rep')?getNewActivitiesCount():0;
-    nav.innerHTML=items.map(it=>{
+    if(othersItems.some(it=>it.id===activeView)) _othersExpanded=true;
+
+    const mainHTML=mainItems.map(it=>{
         const badge=it.id==='activities'&&newAct>0?`<span class="sb-notif-badge">${newAct}</span>`:'';
         return`<button class="sb-item${activeView===it.id?' active':''}" data-view="${it.id}">
             <span class="sb-icon">${it.icon}</span>
@@ -881,15 +889,43 @@ function renderSidebar() {
             ${badge}
         </button>`;
     }).join('');
-    nav.querySelectorAll('.sb-item').forEach(btn=>{
+
+    const othersHTML=othersItems.length?`
+        <button class="sb-item sb-others-toggle" id="sb-others-toggle">
+            <span class="sb-icon">•••</span>
+            <span>Others</span>
+            <span style="margin-left:auto;font-size:10px;opacity:.6">${_othersExpanded?'▲':'▼'}</span>
+        </button>
+        <div id="sb-others-group" style="${_othersExpanded?'':'display:none'}">
+            ${othersItems.map(it=>`<button class="sb-item sb-sub-item${activeView===it.id?' active':''}" data-view="${it.id}">
+                <span class="sb-icon">${it.icon}</span>
+                <span>${it.label}</span>
+            </button>`).join('')}
+        </div>`:'';
+
+    nav.innerHTML=mainHTML+othersHTML;
+
+    nav.querySelectorAll('.sb-item[data-view]').forEach(btn=>{
         btn.onclick=()=>{navigate(btn.dataset.view);closeMobileSidebar();};
     });
+    document.getElementById('sb-others-toggle')?.addEventListener('click',()=>{
+        _othersExpanded=!_othersExpanded;
+        const g=document.getElementById('sb-others-group');
+        const t=document.getElementById('sb-others-toggle');
+        if(g)g.style.display=_othersExpanded?'':'none';
+        if(t)t.querySelector('span:last-child').textContent=_othersExpanded?'▲':'▼';
+    });
+
+    const brand=document.getElementById('sb-brand');
+    if(brand) brand.onclick=()=>{navigate('dashboard');closeMobileSidebar();};
 }
 
 function activateSidebarItem(view) {
     document.querySelectorAll('.sb-item').forEach(el=>{
         el.classList.toggle('active',el.dataset.view===view);
     });
+    const brand=document.getElementById('sb-brand');
+    if(brand) brand.classList.toggle('active', view==='dashboard');
 }
 
 const PALETTE=['#38bdf8','#a78bfa','#22d3ee','#f472b6','#fb923c','#34d399','#fbbf24','#818cf8'];
@@ -1164,8 +1200,8 @@ function viewDashboard() {
                 <div class="dash-track-sub">${u.lead?'Team Lead · ':''}Curio Crate Volunteer</div>
             </div>
         </div>`:''}
-        <div class="card-grid card-grid-4 mb-12">
-            <div class="stat-card stat-hours-card" onclick="showHoursGoalModal()" title="Click to set an hours goal">
+        <div style="display:flex;align-items:stretch;gap:12px;margin-bottom:4px">
+            <div class="stat-card stat-hours-card" style="flex:1;cursor:pointer" onclick="showHoursGoalModal()" title="Click to set an hours goal">
                 <div class="stat-icon" style="background:var(--blue-g)">⏱</div>
                 ${hoursGoal?`<div style="flex:1;min-width:0">
                     <div style="display:flex;align-items:baseline;gap:5px">
@@ -1180,6 +1216,9 @@ function viewDashboard() {
                     <div class="stat-lbl">Total Hours · <span class="hours-goal-hint">Set goal →</span></div>
                 </div>`}
             </div>
+            <button class="btn btn-ghost btn-sm" id="dash-stats-toggle" style="flex-shrink:0;align-self:center">${_dashStatsCollapsed?'📊 Stats ▾':'📊 Stats ▲'}</button>
+        </div>
+        ${!_dashStatsCollapsed?`<div class="card-grid card-grid-2 mb-12" style="margin-top:8px">
             <div class="stat-card">
                 <div class="stat-icon" style="background:var(--teal-g)">📚</div>
                 <div><div class="stat-val" style="color:var(--teal)">${stats.curricCount}</div><div class="stat-lbl">Curriculum</div></div>
@@ -1188,14 +1227,15 @@ function viewDashboard() {
                 <div class="stat-icon" style="background:var(--violet-g)">🎓</div>
                 <div><div class="stat-val" style="color:var(--violet)">${stats.eventsCount}</div><div class="stat-lbl">Events</div></div>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon" style="background:var(--gold-g)">✋</div>
-                <div><div class="stat-val" style="color:var(--gold)">${currRegs.length+evRegs.length}</div><div class="stat-lbl">Registered</div></div>
+        </div>`:'<div class="mb-12"></div>'}
+        ${(S.data.orgRank||S.data.chapRank)?`<div class="mb-20">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-ghost btn-sm" id="dash-rank-toggle">🏆 Rankings ${_dashRankCollapsed?'▾':'▲'}</button>
+                ${!_dashRankCollapsed?`
+                    ${S.data.orgRank?`<span class="hours-rank-badge">🏆 #${S.data.orgRank} of ${S.data.orgTotal} in the organization</span>`:''}
+                    ${(S.data.chapRank&&S.data.chapTotal>1)?`<span class="hours-rank-badge hours-rank-chap">📍 #${S.data.chapRank} of ${S.data.chapTotal} in your chapter</span>`:''}
+                `:''}
             </div>
-        </div>
-        ${(S.data.orgRank||S.data.chapRank)?`<div class="hours-rank-row mb-20">
-            ${S.data.orgRank?`<span class="hours-rank-badge">🏆 #${S.data.orgRank} of ${S.data.orgTotal} in the organization</span>`:''}
-            ${(S.data.chapRank&&S.data.chapTotal>1)?`<span class="hours-rank-badge hours-rank-chap">📍 #${S.data.chapRank} of ${S.data.chapTotal} in your chapter</span>`:''}
         </div>`:'<div class="mb-20"></div>'}
         <div class="dash-two-col">
             <div>
@@ -1232,6 +1272,8 @@ function viewDashboard() {
                 })()}
             </div>
         </div>`;
+    document.getElementById('dash-stats-toggle')?.addEventListener('click',()=>{_dashStatsCollapsed=!_dashStatsCollapsed;viewDashboard();});
+    document.getElementById('dash-rank-toggle')?.addEventListener('click',()=>{_dashRankCollapsed=!_dashRankCollapsed;viewDashboard();});
     // Clicking a registration card opens the detail modal
     root.querySelectorAll('.dash-assign-card').forEach(card=>{
         card.addEventListener('click',()=>{
@@ -1589,38 +1631,6 @@ function viewMyProgress() {
     // chapter_rep and directors use volUser for personal stats if available
     const u=(S.role==='chapter_rep'||S.dirRole)?( S.volUser||S.user||{} ):(S.user||{});
     const stats=S.data.myStats||{totalHours:0,curricCount:0,eventsCount:0};
-    const currentTier=u.tier||'1';
-    const tierOrder=[1,2,3,4];
-
-    const tierHTML=tierOrder.map(tier=>{
-        const t=CONFIG.TIERS[tier]||CONFIG.TIERS[1];
-        const numTier=tier==='Exec'?999:parseInt(tier);
-        const numCurrent=currentTier==='Exec'?999:parseInt(currentTier);
-        const isCompleted=numCurrent>numTier;
-        const isCurrent=String(tier)===String(currentTier);
-        const isLocked_=numCurrent<numTier;
-        let stateClass=isCompleted?'completed':isCurrent?'current':isLocked_?'locked':'';
-        let statusHTML='';
-        if(isCompleted)statusHTML='<span style="font-size:11px;font-weight:700;color:var(--green);background:var(--green-g);border:1px solid rgba(52,211,153,.3);border-radius:100px;padding:3px 10px">✓ Achieved</span>';
-        else if(isCurrent)statusHTML='<span style="font-size:11px;font-weight:700;color:var(--blue);background:var(--blue-g);border:1px solid rgba(56,189,248,.3);border-radius:100px;padding:3px 10px">● Current</span>';
-        const criteria=buildTierCriteria(tier,isCompleted,isCurrent,stats);
-        const metCount=criteria.filter(c=>c.met).length;
-        const criteriaHTML=!isLocked_?`<div class="criteria-list mt-12">`+
-            criteria.map(c=>`<div class="criteria-item ${c.met?'met':''}"><div class="criteria-check">${c.met?'✓':''}</div><span>${c.label}</span></div>`).join('')+
-            `</div>${!isCompleted?`<div class="progress-bar-wrap mt-12"><div class="progress-bar-track"><div class="progress-bar-fill" style="width:${Math.round(metCount/Math.max(criteria.length,1)*100)}%"></div></div><div class="progress-bar-lbl">${metCount}/${criteria.length} criteria</div></div>`:''}`:
-            `<div class="muted text-small mt-8">Achieve the previous tier first.</div>`;
-        return `<div class="tier-step ${stateClass}">
-            <div class="tier-step-header">
-                <div class="tier-step-icon">${t.icon}</div>
-                <div style="flex:1">
-                    <div class="tier-step-name">${tierBadge(tier)}</div>
-                    <div class="tier-step-lbl">${tier==='Exec'?'Invitation only':`Level ${tier} · ${t.name}`}</div>
-                </div>
-                ${statusHTML}
-            </div>
-            ${criteriaHTML}
-        </div>`;
-    }).join('');
 
     root.innerHTML=`
         <div class="view-header">
@@ -1643,9 +1653,7 @@ function viewMyProgress() {
                 <div><div class="stat-val" style="color:var(--violet)">${stats.eventsCount}</div><div class="stat-lbl">Events Attended</div></div>
             </div>
         </div>
-        <div class="section-title">TIER JOURNEY</div>
-        <div class="progress-journey">${tierHTML}</div>
-        <div class="section-title" style="margin-top:24px">REQUIRED FORMS</div>
+        <div class="section-title">REQUIRED FORMS</div>
         <div class="ymca-form-row">
             <div style="font-size:18px">🏕️</div>
             <div style="flex:1;min-width:0">
@@ -3227,13 +3235,12 @@ function viewMyChapter() {
         <div class="section-title mt-20">CHAPTER MEMBERS (${chapMembers.length})</div>
         <div class="table-wrap">
         <table class="data-table">
-            <thead><tr><th>Volunteer</th><th>Track</th><th>Tier</th></tr></thead>
+            <thead><tr><th>Volunteer</th><th>Track</th></tr></thead>
             <tbody>
                 ${chapMembers.map(v=>`<tr>
                     <td><div class="td-name">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
                     <td>${trackPill(v.track||'')}</td>
-                    <td>${tierBadge(v.tier||'1')}</td>
-                </tr>`).join('')||'<tr><td colspan="3" class="muted text-small" style="text-align:center;padding:20px">No members found.</td></tr>'}
+                </tr>`).join('')||'<tr><td colspan="2" class="muted text-small" style="text-align:center;padding:20px">No members found.</td></tr>'}
             </tbody>
         </table>
         </div>`;
