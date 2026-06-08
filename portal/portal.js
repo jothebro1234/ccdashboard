@@ -15,9 +15,7 @@ const S = {
     chapData: null, // { name, school } fr chapter_rep
 };
 
-let _dashStatsCollapsed = false;
-let _dashRankCollapsed  = false;
-let _othersExpanded     = false;
+let _othersExpanded = false;
 
 /* ── Role helpers ─────────────────────────────────────────── */
 const EXEC_ROLES=['president','cef','vp','sec','tres','cpo'];
@@ -1200,8 +1198,8 @@ function viewDashboard() {
                 <div class="dash-track-sub">${u.lead?'Team Lead · ':''}Curio Crate Volunteer</div>
             </div>
         </div>`:''}
-        <div style="display:flex;align-items:stretch;gap:12px;margin-bottom:4px">
-            <div class="stat-card stat-hours-card" style="flex:1;cursor:pointer" onclick="showHoursGoalModal()" title="Click to set an hours goal">
+        <div class="card-grid card-grid-3 mb-12">
+            <div class="stat-card stat-hours-card" onclick="showHoursGoalModal()" title="Click to set an hours goal">
                 <div class="stat-icon" style="background:var(--blue-g)">⏱</div>
                 ${hoursGoal?`<div style="flex:1;min-width:0">
                     <div style="display:flex;align-items:baseline;gap:5px">
@@ -1216,9 +1214,6 @@ function viewDashboard() {
                     <div class="stat-lbl">Total Hours · <span class="hours-goal-hint">Set goal →</span></div>
                 </div>`}
             </div>
-            <button class="btn btn-ghost btn-sm" id="dash-stats-toggle" style="flex-shrink:0;align-self:center">${_dashStatsCollapsed?'📊 Stats ▾':'📊 Stats ▲'}</button>
-        </div>
-        ${!_dashStatsCollapsed?`<div class="card-grid card-grid-2 mb-12" style="margin-top:8px">
             <div class="stat-card">
                 <div class="stat-icon" style="background:var(--teal-g)">📚</div>
                 <div><div class="stat-val" style="color:var(--teal)">${stats.curricCount}</div><div class="stat-lbl">Curriculum</div></div>
@@ -1227,15 +1222,10 @@ function viewDashboard() {
                 <div class="stat-icon" style="background:var(--violet-g)">🎓</div>
                 <div><div class="stat-val" style="color:var(--violet)">${stats.eventsCount}</div><div class="stat-lbl">Events</div></div>
             </div>
-        </div>`:'<div class="mb-12"></div>'}
-        ${(S.data.orgRank||S.data.chapRank)?`<div class="mb-20">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <button class="btn btn-ghost btn-sm" id="dash-rank-toggle">🏆 Rankings ${_dashRankCollapsed?'▾':'▲'}</button>
-                ${!_dashRankCollapsed?`
-                    ${S.data.orgRank?`<span class="hours-rank-badge">🏆 #${S.data.orgRank} of ${S.data.orgTotal} in the organization</span>`:''}
-                    ${(S.data.chapRank&&S.data.chapTotal>1)?`<span class="hours-rank-badge hours-rank-chap">📍 #${S.data.chapRank} of ${S.data.chapTotal} in your chapter</span>`:''}
-                `:''}
-            </div>
+        </div>
+        ${(S.data.orgRank||S.data.chapRank)?`<div class="hours-rank-row mb-20">
+            ${S.data.orgRank?`<span class="hours-rank-badge">🏆 #${S.data.orgRank} of ${S.data.orgTotal} in the organization</span>`:''}
+            ${(S.data.chapRank&&S.data.chapTotal>1)?`<span class="hours-rank-badge hours-rank-chap">📍 #${S.data.chapRank} of ${S.data.chapTotal} in your chapter</span>`:''}
         </div>`:'<div class="mb-20"></div>'}
         <div class="dash-two-col">
             <div>
@@ -1272,8 +1262,6 @@ function viewDashboard() {
                 })()}
             </div>
         </div>`;
-    document.getElementById('dash-stats-toggle')?.addEventListener('click',()=>{_dashStatsCollapsed=!_dashStatsCollapsed;viewDashboard();});
-    document.getElementById('dash-rank-toggle')?.addEventListener('click',()=>{_dashRankCollapsed=!_dashRankCollapsed;viewDashboard();});
     // Clicking a registration card opens the detail modal
     root.querySelectorAll('.dash-assign-card').forEach(card=>{
         card.addEventListener('click',()=>{
