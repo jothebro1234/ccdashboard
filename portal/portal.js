@@ -175,7 +175,6 @@ function showYMCAUploadModal(){
                 <div style="font-weight:700;font-size:14px;color:var(--text);margin-bottom:8px">Download &amp; fill out the YMCA form</div>
                 <ul style="margin:0;padding-left:16px;font-size:12.5px;color:var(--textm);line-height:2;list-style:disc">
                     <li>Fill in <strong style="font-size:13.5px;color:#e53e3e">every field boxed in <span style="color:#e53e3e;text-decoration:underline">RED</span></strong></li>
-                    <li>Write your name as <strong style="color:var(--text)">Firstname Lastname</strong> <span style="color:var(--textm)">(e.g. Jane Smith)</span></li>
                     <li>Sign the form <span style="color:var(--textm)">(digital signature or hand-sign &amp; scan)</span></li>
                     <li>Save the file as <strong style="color:var(--text);font-family:monospace">firstname_lastname.pdf</strong> <span style="color:var(--textm)">(e.g. <code style="font-size:11px">jane_smith.pdf</code>)</span></li>
                 </ul>
@@ -187,7 +186,6 @@ function showYMCAUploadModal(){
             <ul style="margin:0;padding-left:16px;font-size:12.5px;color:var(--textm);line-height:2;list-style:disc">
                 <li>Get the blank form from your director</li>
                 <li>Fill in <strong style="font-size:13.5px;color:#e53e3e">every field boxed in <span style="text-decoration:underline">RED</span></strong></li>
-                <li>Write your name as <strong style="color:var(--text)">Firstname Lastname</strong></li>
                 <li>Sign it, then save as <strong style="color:var(--text);font-family:monospace">firstname_lastname.pdf</strong></li>
             </ul>
         </div>`;
