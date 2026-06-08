@@ -228,14 +228,32 @@ body {
 }
 .sb-brand {
     display: flex; align-items: center; gap: 12px;
-    padding: 22px 18px 18px;
-    border-bottom: 1px solid var(--sb-border);
+    padding: 14px 12px;
+    margin: 10px 10px 4px;
+    border-bottom: none;
+    border-radius: var(--rsm);
     flex-shrink: 0;
-    transition: background .18s;
-    border-radius: 0;
+    transition: background .18s, box-shadow .18s;
+    position: relative;
 }
-.sb-brand:hover { background: var(--sb-hover); }
-.sb-brand.active { background: var(--sb-active); }
+.sb-brand:hover {
+    background: var(--sb-hover);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.13);
+}
+.sb-brand.active {
+    background: var(--sb-active);
+}
+.sb-brand.active::before {
+    content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+    width: 3px; border-radius: 0 4px 4px 0;
+    background: rgba(255,255,255,0.85);
+}
+.sb-brand-home-hint {
+    margin-left: auto; font-size: 9px; font-weight: 800; letter-spacing: .8px;
+    color: var(--sb-textm); opacity: 0; transition: opacity .18s;
+    text-transform: uppercase; flex-shrink: 0;
+}
+.sb-brand:hover .sb-brand-home-hint { opacity: 1; }
 .sb-sub-item { padding-left: 28px; font-size: 12.5px; opacity: .9; }
 .sb-logo {
     width: 34px; height: 34px; object-fit: contain;
