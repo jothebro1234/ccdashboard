@@ -600,6 +600,33 @@ async function restoreSession(sess) {
         await loadVolunteerData(S.user.name);
         launchPortal();
     } else {
+        // Re-verify the director/rep is still listed in the sheet before restoring the session.
+        // If removed from the sheet, downgrade to volunteer (if applicable) or show not-registered.
+        const email=(S.user?.email||'').trim().toLowerCase();
+        if(email){
+            try{
+                const [dirRows,chapRows]=await Promise.all([
+                    fetchSheet(CONFIG.DIRECTORS_SHEET||'Directors').catch(()=>[]),
+                    fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
+                ]);
+                const stillDir=dirRows.slice(1).some(r=>(r[0]||'').trim().toLowerCase()===email);
+                const stillChap=chapRows.slice(1).some(r=>(r[0]||'').trim().toLowerCase()===email);
+                if(!stillDir&&!stillChap){
+                    try{localStorage.removeItem(SESSION_KEY);}catch(_){}
+                    if(S.volUser){
+                        S.user=S.volUser;S.role='volunteer';S.dirRole=null;S.volUser=null;
+                        await loadVolunteerData(S.user.name);
+                        launchPortal();
+                    } else {
+                        hideLoading();
+                        showNotRegistered(email,'');
+                    }
+                    return;
+                }
+            }catch(_){
+                // Network error — fail open so users aren't locked out during outages
+            }
+        }
         await launchDirectorPortal(S.role);
     }
 }
