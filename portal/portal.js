@@ -169,19 +169,28 @@ function showYMCAUploadModal(){
     const existing=S.user?.ymcaFormURL||'';
     const formUrl=(CONFIG.YMCA_FORM_URL||'').trim();
     const downloadStep=formUrl
-        ?`<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border)">
-            <div style="font-size:20px;flex-shrink:0;margin-top:1px">1️⃣</div>
+        ?`<div style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border)">
+            <div style="font-size:22px;flex-shrink:0;margin-top:1px">1️⃣</div>
             <div style="flex:1;min-width:0">
-                <div style="font-weight:700;font-size:13px;color:var(--text)">Download the YMCA form</div>
-                <div style="font-size:11px;color:var(--textm);margin-top:4px;line-height:1.6">
-                    Open the blank form and <strong style="color:var(--text)">fill in all sections outlined in red</strong>.<br>
-                    Write your name in <strong style="color:var(--text)">Firstname Lastname</strong> format (e.g. Jane Smith).<br>
-                    Sign it, then save the file as <strong style="color:var(--text)">Firstname Lastname</strong> (e.g. <em>Jane Smith.pdf</em>).
-                </div>
+                <div style="font-weight:700;font-size:14px;color:var(--text);margin-bottom:8px">Download &amp; fill out the YMCA form</div>
+                <ul style="margin:0;padding-left:16px;font-size:12.5px;color:var(--textm);line-height:2;list-style:disc">
+                    <li>Fill in <strong style="font-size:13.5px;color:#e53e3e">every field boxed in <span style="color:#e53e3e;text-decoration:underline">RED</span></strong></li>
+                    <li>Write your name as <strong style="color:var(--text)">Firstname Lastname</strong> <span style="color:var(--textm)">(e.g. Jane Smith)</span></li>
+                    <li>Sign the form <span style="color:var(--textm)">(digital signature or hand-sign &amp; scan)</span></li>
+                    <li>Save the file as <strong style="color:var(--text);font-family:monospace">firstname_lastname.pdf</strong> <span style="color:var(--textm)">(e.g. <code style="font-size:11px">jane_smith.pdf</code>)</span></li>
+                </ul>
             </div>
             <a href="${esc(formUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="flex-shrink:0;margin-top:2px">📄 Open Form</a>
         </div>`
-        :`<div style="padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border);font-size:12px;color:var(--textm);line-height:1.6">1️⃣ &nbsp;Get the YMCA volunteer form from your director. Fill in all sections outlined in red, write your name in <strong>Firstname Lastname</strong> format, sign it, then upload it below.</div>`;
+        :`<div style="padding:14px 16px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border)">
+            <div style="font-weight:700;font-size:14px;color:var(--text);margin-bottom:8px">1️⃣ &nbsp;Fill out the YMCA form</div>
+            <ul style="margin:0;padding-left:16px;font-size:12.5px;color:var(--textm);line-height:2;list-style:disc">
+                <li>Get the blank form from your director</li>
+                <li>Fill in <strong style="font-size:13.5px;color:#e53e3e">every field boxed in <span style="text-decoration:underline">RED</span></strong></li>
+                <li>Write your name as <strong style="color:var(--text)">Firstname Lastname</strong></li>
+                <li>Sign it, then save as <strong style="color:var(--text);font-family:monospace">firstname_lastname.pdf</strong></li>
+            </ul>
+        </div>`;
     const html=`
         <div class="modal-header">
             <div class="modal-title">🏕️ YMCA Volunteer Form</div>
@@ -201,7 +210,7 @@ function showYMCAUploadModal(){
                         <div style="font-weight:700;font-size:13px;color:var(--text)">Upload your signed form</div>
                     </div>
                     <input type="file" id="ymca-file-input" accept=".pdf,.jpg,.jpeg,.png" class="form-input" style="padding:8px">
-                    <div class="form-hint" style="margin-top:4px">Accepted: PDF, JPG, PNG · Max 5 MB · File name should be <strong>Firstname Lastname</strong></div>
+                    <div class="form-hint" style="margin-top:6px">Accepted: PDF, JPG, PNG · Max 5 MB · Name your file <strong style="font-family:monospace;color:var(--text)">firstname_lastname.pdf</strong></div>
                 </div>
             </div>
             <div class="form-err" id="ymca-err"></div>
