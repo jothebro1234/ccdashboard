@@ -1191,15 +1191,19 @@ function viewDashboard() {
         </div>`;
     }).join('');
 
-    const directorRole=(CONFIG.TRACKS[u.track]||{}).role;
-    const dirInfo=directorRole?CONFIG.DIRECTORS[directorRole]:null;
-    const president=CONFIG.DIRECTORS['president'];
-    // Collect director entries for primary + additional track (deduplicated)
+    // Build director entries from the live sheet, not from hardcoded config names
     const _seenDirRoles=new Set();
     const _allDirEntries=[];
     [u.track,u.additionalTrack].filter(t=>t&&CONFIG.TRACKS[t]).forEach(t=>{
-        const r2=(CONFIG.TRACKS[t]||{}).role;
-        if(r2&&!_seenDirRoles.has(r2)){_seenDirRoles.add(r2);const d=CONFIG.DIRECTORS[r2];if(d)_allDirEntries.push({dirInfo:d,trackCfg:CONFIG.TRACKS[t]||{}});}
+        const role=(CONFIG.TRACKS[t]||{}).role;
+        if(role&&!_seenDirRoles.has(role)){
+            _seenDirRoles.add(role);
+            const roleMeta=CONFIG.DIRECTORS[role]||{title:roleLabel(role),track:getDirTrack(role)};
+            const names=(S.data.directors||[])
+                .filter(r=>(r[2]||'').trim().toLowerCase()===role)
+                .map(r=>(r[1]||'').trim()).filter(Boolean);
+            if(names.length)_allDirEntries.push({roleMeta,trackCfg:CONFIG.TRACKS[t]||{},names});
+        }
     });
     const trackColor=(track.color)||'var(--blue)';
     const trackColorG=(track.glow)||'rgba(56,189,248,.12)';
@@ -1267,17 +1271,16 @@ function viewDashboard() {
                     if(!_allDirEntries.length)return'<div class="card dash-directors-card"><div class="muted text-small">No director assigned.</div></div>';
                     const volDiscord={};
                     (S.data.allVolunteers||[]).forEach(v=>{if(v.name)volDiscord[v.name.toLowerCase()]=v.discord||'';});
-                    const cards=_allDirEntries.flatMap(({dirInfo:di,trackCfg:tc})=>{
+                    const cards=_allDirEntries.flatMap(({roleMeta,trackCfg:tc,names})=>{
                         const tColor=tc.color||trackColor;
                         const tGlow=tc.glow||trackColorG;
-                        return(di.name||'').split(',').map(n=>{
-                            n=n.trim();if(!n)return'';
+                        return names.map(n=>{
                             const discord=volDiscord[n.toLowerCase()]||'';
                             return`<div class="card dash-directors-card">
                                 <div class="dash-dir-row">
                                     <div class="dash-dir-icon" style="background:${tGlow};color:${tColor}">${tc.icon||'👤'}</div>
                                     <div>
-                                        <div class="dash-dir-title">${esc(di.title)}</div>
+                                        <div class="dash-dir-title">${esc(roleMeta.title)}</div>
                                         <div class="dash-dir-name">${esc(n)}</div>
                                         ${discord?`<div class="dash-dir-discord">Discord: @${esc(discord)}</div>`:''}
                                     </div>
