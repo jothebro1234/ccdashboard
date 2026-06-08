@@ -1200,7 +1200,7 @@ function viewDashboard() {
             _seenDirRoles.add(role);
             const roleMeta=CONFIG.DIRECTORS[role]||{title:roleLabel(role),track:getDirTrack(role)};
             const names=(S.data.directors||[])
-                .filter(r=>(r[2]||'').trim().toLowerCase()===role)
+                .filter(r=>(r[2]||'').trim().toLowerCase()===role && (r[3]||'').trim().toLowerCase()!=='trial')
                 .map(r=>(r[1]||'').trim()).filter(Boolean);
             if(names.length)_allDirEntries.push({roleMeta,trackCfg:CONFIG.TRACKS[t]||{},names});
         }
