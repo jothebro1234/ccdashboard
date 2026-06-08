@@ -169,15 +169,19 @@ function showYMCAUploadModal(){
     const existing=S.user?.ymcaFormURL||'';
     const formUrl=(CONFIG.YMCA_FORM_URL||'').trim();
     const downloadStep=formUrl
-        ?`<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border)">
-            <div style="font-size:20px;flex-shrink:0">1️⃣</div>
+        ?`<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border)">
+            <div style="font-size:20px;flex-shrink:0;margin-top:1px">1️⃣</div>
             <div style="flex:1;min-width:0">
                 <div style="font-weight:700;font-size:13px;color:var(--text)">Download the YMCA form</div>
-                <div style="font-size:11px;color:var(--textm);margin-top:2px">Open the blank form, print or fill it digitally, then sign it.</div>
+                <div style="font-size:11px;color:var(--textm);margin-top:4px;line-height:1.6">
+                    Open the blank form and <strong style="color:var(--text)">fill in all sections outlined in red</strong>.<br>
+                    Write your name in <strong style="color:var(--text)">Firstname Lastname</strong> format (e.g. Jane Smith).<br>
+                    Sign it, then save the file as <strong style="color:var(--text)">Firstname Lastname</strong> (e.g. <em>Jane Smith.pdf</em>).
+                </div>
             </div>
-            <a href="${esc(formUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="flex-shrink:0">📄 Open Form</a>
+            <a href="${esc(formUrl)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="flex-shrink:0;margin-top:2px">📄 Open Form</a>
         </div>`
-        :`<div style="padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border);font-size:12px;color:var(--textm)">1️⃣ &nbsp;Get the YMCA volunteer form from your director, sign it, then upload it below.</div>`;
+        :`<div style="padding:12px 14px;border-radius:8px;background:var(--surface-2);border:1.5px solid var(--border);font-size:12px;color:var(--textm);line-height:1.6">1️⃣ &nbsp;Get the YMCA volunteer form from your director. Fill in all sections outlined in red, write your name in <strong>Firstname Lastname</strong> format, sign it, then upload it below.</div>`;
     const html=`
         <div class="modal-header">
             <div class="modal-title">🏕️ YMCA Volunteer Form</div>
@@ -197,7 +201,7 @@ function showYMCAUploadModal(){
                         <div style="font-weight:700;font-size:13px;color:var(--text)">Upload your signed form</div>
                     </div>
                     <input type="file" id="ymca-file-input" accept=".pdf,.jpg,.jpeg,.png" class="form-input" style="padding:8px">
-                    <div class="form-hint" style="margin-top:4px">Accepted: PDF, JPG, PNG · Max 5 MB</div>
+                    <div class="form-hint" style="margin-top:4px">Accepted: PDF, JPG, PNG · Max 5 MB · File name should be <strong>Firstname Lastname</strong></div>
                 </div>
             </div>
             <div class="form-err" id="ymca-err"></div>
@@ -2597,7 +2601,7 @@ function evCardHTML(r,lowerName) {
     if(!isCredited){
         const ymcaBlocked=requiresYMCA&&!hasYMCAForm&&!isRegistered;
         if(!closed&&ymcaBlocked){
-            actionHTML=`<button class="btn btn-sm ev-ymca-btn" style="background:rgba(212,150,14,.12);border:1.5px solid rgba(212,150,14,.35);color:#b87000" data-name="${esc(name)}">🏕️ Upload YMCA Form to Register</button>`;
+            actionHTML=`<button class="btn btn-sm ev-ymca-btn" style="background:rgba(212,150,14,.88);border:1.5px solid rgba(180,120,0,.9);color:#fff;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.18)" data-name="${esc(name)}">🏕️ Upload YMCA Form to Register</button>`;
         } else if(!closed&&!isRegistered&&!isFull){
             actionHTML=`<button class="btn btn-primary btn-sm ev-reg-btn" data-name="${esc(name)}" data-vol="${esc(S.user?.name||'')}">✋ Register</button>`;
         } else if(!closed&&isRegistered){
@@ -2682,11 +2686,16 @@ function showEventDetail(r) {
     if(isLeadership)tags.push('<span class="ev-tag ev-tag-leadership">Leadership</span>');
     if(requiresYMCA)tags.push('<span class="ev-tag ev-tag-ymca">🏕️ YMCA</span>');
 
-    const ymcaBannerHTML=requiresYMCA&&!hasYMCAForm?`
-        <div style="margin:14px 0;padding:12px 14px;border-radius:8px;background:rgba(212,150,14,.10);border:1.5px solid rgba(212,150,14,.30);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    const ymcaBannerHTML=requiresYMCA?(hasYMCAForm
+        ?`<div style="margin:14px 0;padding:10px 14px;border-radius:8px;background:var(--green-g);border:1.5px solid rgba(52,211,153,.25);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:0;font-size:12px;color:var(--green);font-weight:700">✅ YMCA form on file</div>
+            <button class="btn btn-ghost btn-sm" id="detail-ymca-btn">Replace Form</button>
+        </div>`
+        :`<div style="margin:14px 0;padding:12px 14px;border-radius:8px;background:rgba(212,150,14,.10);border:1.5px solid rgba(212,150,14,.30);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <div style="flex:1;min-width:0;font-size:12px;color:#b87000;font-weight:700">🏕️ This event requires a signed YMCA volunteer form to register.</div>
             <button class="btn btn-sm" style="background:rgba(212,150,14,.15);border:1.5px solid rgba(212,150,14,.40);color:#b87000;flex-shrink:0" id="detail-ymca-btn">Upload Form</button>
-        </div>`:'';
+        </div>`)
+        :'';
 
     const html=`
         <div class="modal-header">
