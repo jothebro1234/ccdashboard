@@ -1190,7 +1190,7 @@ function viewDashboard() {
             <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
                     ${deap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Event')}</div>${deap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Event')}</div>`}
-                    <div class="curr-meta" style="margin-top:4px">📅 ${fmtDateTimeStr(evDate)} · ⏱ ${esc(String(r[2]||0))}h credit</div>
+                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
                     ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate)}</div>`:''}
                     ${done?`<div class="curr-waiting">⏳ Waiting for hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots</div>`}
                 </div>
@@ -1213,7 +1213,7 @@ function viewDashboard() {
             <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
                     ${dap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Assignment')}</div>${dap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Assignment')}</div>`}
-                    <div class="curr-meta" style="margin-top:4px">📅 Due ${fmtDateTimeStr(r[1])} · ⏱ ${esc(String(r[2]||0))}h credit</div>
+                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(r[1])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
                     ${!locked&&startDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Closes ${fmtDateTimeStr(startDate)}</div>`:''}
                     ${done?`<div class="curr-waiting">⏳ Waiting for director to confirm hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots filled</div>`}
                 </div>
@@ -1249,13 +1249,6 @@ function viewDashboard() {
                 <button class="btn btn-ghost btn-sm" onclick="refreshDashboard()" title="Refresh data">🔄 Refresh</button>
             </div>
         </div>
-        ${u.track?`<div class="dash-track-banner" style="--track-color:${trackColor};--track-glow:${trackColorG}">
-            <div class="dash-track-icon">${track.icon||'🏷'}</div>
-            <div class="dash-track-info">
-                <div class="dash-track-name">${esc(combinedTrackLabel(u))} Team</div>
-                <div class="dash-track-sub">${u.lead?'Team Lead · ':''}Curio Crate Volunteer</div>
-            </div>
-        </div>`:''}
         <div class="card-grid card-grid-3 mb-12">
             <div class="stat-card stat-hours-card" onclick="showHoursGoalModal()" title="Click to set an hours goal">
                 <div class="stat-icon" style="background:var(--blue-g)">⏱</div>
@@ -1574,7 +1567,7 @@ function currCardHTML(r,lowerName) {
         ${exSparkles}<div style="display:flex;align-items:flex-start;gap:12px">
             <div style="flex:1;min-width:0">
                 ${ap.badge?`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><div class="curr-title" style="margin-bottom:0">${esc(name)}</div>${ap.badge}</div>`:`<div class="curr-title">${esc(name)}</div>`}
-                <div class="curr-meta" style="margin-top:5px">📅 Due ${fmtDateTimeStr(r[1])} · ⏱ ${esc(hours)}h credit</div>
+                <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(r[1])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
                 ${signupCloseHTML}
             </div>
@@ -2477,14 +2470,14 @@ function viewActivities() {
     root.innerHTML=`
         <div class="view-header">
             <div>
-                <div class="view-title">Activities 📚</div>
+                <div class="view-title">Volunteer Opportunities 📚</div>
                 <div class="view-subtitle">${total} total · ${openAssign+openEvs} open now</div>
             </div>
             <button class="btn btn-ghost btn-sm" id="act-refresh-btn">↺ Refresh</button>
         </div>
         <div class="panel-tabs" id="act-tabs">
             <button class="panel-tab active" data-tab="available">Available</button>
-            <button class="panel-tab" data-tab="mine">Mine</button>
+            <button class="panel-tab" data-tab="mine">My Past Volunteering</button>
             <button class="panel-tab" data-tab="all">All (${total})</button>
         </div>
         <div class="act-split">
@@ -2675,7 +2668,7 @@ function evCardHTML(r,lowerName) {
                     <div class="curr-title">${esc(name)}</div>
                     ${chapterBadge}${eap.badge}
                 </div>
-                <div class="curr-meta" style="margin-top:5px">📅 ${fmtDateTimeStr(evDate)} · ⏱ ${esc(hours)}h credit</div>
+                <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 ${tagsHTML}
                 ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
                 ${signupCloseHTML}
