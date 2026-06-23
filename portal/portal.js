@@ -1177,32 +1177,33 @@ function viewDashboard() {
     const nextAwardText=nextAward?`${nextAward.icon} ${Math.round(nextAward.hrs-stats.totalHours)} more hrs to ${nextAward.label}`:'🏆 All milestone awards earned!';
     const currRegs=S.data.myRegistrations||[];
     const evRegs=S.data.myEventRegistrations||[];
-    // Combine for display, up to 3 total
-    const allRegs=[...currRegs.map(r=>({...r,_type:'curr'})),...evRegs.map(r=>({...r,_type:'event'}))].slice(0,3);
+    const totalRegCount=currRegs.length+evRegs.length;
 
-    const regCards=allRegs.map(r=>{
-        if(r._type==='event'){
-            const closeDate=r[8]||'';
-            const evDate=r[1]||'';
-            const closed=closeDate&&toDateStr(closeDate)<localToday();
-            const done=isCompleted(evDate);
-            const maxVols=parseInt(r[6])||0;
-            const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
-            const countdown=formatCountdown(closeDate);
-            const deap=evCardAppearance(r);
-            const dStyle=deap.style?`${deap.style};cursor:pointer`:'cursor:pointer';
-            return `<div class="curr-card ev-card dash-assign-card${deap.cls?' '+deap.cls:''}" data-assign-name="${esc(r[0]||'')}" data-type="event" style="${dStyle}">
-                <div style="display:flex;align-items:flex-start;gap:12px">
-                    <div style="flex:1;min-width:0">
-                        ${deap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Event')}</div>${deap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Event')}</div>`}
-                        <div class="curr-meta" style="margin-top:4px">📅 ${fmtDateTimeStr(evDate)} · ⏱ ${esc(String(r[2]||0))}h credit</div>
-                        ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate)}</div>`:''}
-                        ${done?`<div class="curr-waiting">⏳ Waiting for hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots</div>`}
-                    </div>
-                    <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':closed?'<span class="curr-lock-badge">🔒 Closed</span>':`<span class="curr-countdown" data-lockdate="${esc(closeDate)}">${esc(countdown)}</span>`}</div>
+    const evRegCards=evRegs.map(r=>{
+        const closeDate=r[8]||'';
+        const evDate=r[1]||'';
+        const closed=closeDate&&toDateStr(closeDate)<localToday();
+        const done=isCompleted(evDate);
+        const maxVols=parseInt(r[6])||0;
+        const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
+        const countdown=formatCountdown(closeDate);
+        const deap=evCardAppearance(r);
+        const dStyle=deap.style?`${deap.style};cursor:pointer`:'cursor:pointer';
+        return `<div class="curr-card ev-card dash-assign-card dash-reg-card${deap.cls?' '+deap.cls:''}" data-assign-name="${esc(r[0]||'')}" data-type="event" style="${dStyle}">
+            <div class="dash-reg-indicator"><span class="dash-reg-badge">✋ Registered</span></div>
+            <div style="display:flex;align-items:flex-start;gap:12px">
+                <div style="flex:1;min-width:0">
+                    ${deap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Event')}</div>${deap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Event')}</div>`}
+                    <div class="curr-meta" style="margin-top:4px">📅 ${fmtDateTimeStr(evDate)} · ⏱ ${esc(String(r[2]||0))}h credit</div>
+                    ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate)}</div>`:''}
+                    ${done?`<div class="curr-waiting">⏳ Waiting for hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots</div>`}
                 </div>
-            </div>`;
-        }
+                <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':closed?'<span class="curr-lock-badge">🔒 Closed</span>':`<span class="curr-countdown" data-lockdate="${esc(closeDate)}">${esc(countdown)}</span>`}</div>
+            </div>
+        </div>`;
+    }).join('');
+
+    const currRegCards=currRegs.map(r=>{
         const locked=isClosed(r[5],r[1]);
         const done=isCompleted(r[1]);
         const maxVols=parseInt(r[6])||0;
@@ -1211,7 +1212,8 @@ function viewDashboard() {
         const countdown=formatCountdown(startDate);
         const dap=cardAppearance(r);
         const dStyle=dap.style?`${dap.style};cursor:pointer`:'cursor:pointer';
-        return `<div class="curr-card dash-assign-card ${dap.cls}" data-assign-name="${esc(r[0]||'')}" data-type="curr" style="${dStyle}">
+        return `<div class="curr-card dash-assign-card dash-reg-card ${dap.cls}" data-assign-name="${esc(r[0]||'')}" data-type="curr" style="${dStyle}">
+            <div class="dash-reg-indicator"><span class="dash-reg-badge">✋ Registered</span></div>
             <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
                     ${dap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Assignment')}</div>${dap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Assignment')}</div>`}
@@ -1287,39 +1289,50 @@ function viewDashboard() {
             ${S.data.orgRank?`<span class="hours-rank-badge">🏆 #${S.data.orgRank} of ${S.data.orgTotal} in the organization</span>`:''}
             ${(S.data.chapRank&&S.data.chapTotal>1)?`<span class="hours-rank-badge hours-rank-chap">📍 #${S.data.chapRank} of ${S.data.chapTotal} in your chapter</span>`:''}
         </div>`:'<div class="mb-20"></div>'}
-        <div class="dash-two-col">
-            <div>
-                <div class="section-title">YOUR ACTIVE REGISTRATIONS</div>
-                ${allRegs.length
-                    ? regCards+'<button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate(\'activities\')">View all activities →</button>'
-                    : mascotEmpty('No registrations yet','Sign up for an assignment or event to get started!','<button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'activities\')">Browse Activities →</button>')}
+        <div class="dash-reg-section">
+            <div class="dash-reg-section-header">
+                <div class="section-title" style="margin-bottom:0">YOUR ACTIVE REGISTRATIONS</div>
+                ${totalRegCount>0?`<span class="dash-reg-total-pill">✋ ${totalRegCount} registered</span>`:''}
             </div>
-            <div>
-                <div class="section-title">YOUR DIRECTORS</div>
-                ${(()=>{
-                    if(!_allDirEntries.length)return'<div class="card dash-directors-card"><div class="muted text-small">No director assigned.</div></div>';
-                    const volDiscord={};
-                    (S.data.allVolunteers||[]).forEach(v=>{if(v.name)volDiscord[v.name.toLowerCase()]=v.discord||'';});
-                    const cards=_allDirEntries.flatMap(({roleMeta,trackCfg:tc,names})=>{
-                        const tColor=tc.color||trackColor;
-                        const tGlow=tc.glow||trackColorG;
-                        return names.map(n=>{
-                            const discord=volDiscord[n.toLowerCase()]||'';
-                            return`<div class="card dash-directors-card">
-                                <div class="dash-dir-row">
-                                    <div class="dash-dir-icon" style="background:${tGlow};color:${tColor}">${tc.icon||'👤'}</div>
-                                    <div>
-                                        <div class="dash-dir-title">${esc(roleMeta.title)}</div>
-                                        <div class="dash-dir-name">${esc(n)}</div>
-                                        ${discord?`<div class="dash-dir-discord">Discord: @${esc(discord)}</div>`:''}
-                                    </div>
+            ${totalRegCount>0?`
+            <div class="dash-reg-cols">
+                <div class="dash-reg-col">
+                    <div class="dash-reg-col-label">🎓 Events <span class="dash-reg-count-pill">${evRegs.length}</span></div>
+                    ${evRegs.length?evRegCards:`<div class="dash-reg-col-empty">No event registrations yet</div>`}
+                </div>
+                <div class="dash-reg-col">
+                    <div class="dash-reg-col-label">📚 Curriculum <span class="dash-reg-count-pill">${currRegs.length}</span></div>
+                    ${currRegs.length?currRegCards:`<div class="dash-reg-col-empty">No curriculum registrations yet</div>`}
+                </div>
+            </div>
+            <button class="btn btn-ghost btn-sm btn-full mt-8" onclick="navigate('activities')">View all activities →</button>
+            `:mascotEmpty('No registrations yet','Sign up for an assignment or event to get started!','<button class="btn btn-ghost btn-sm mt-8" onclick="navigate(\'activities\')">Browse Activities →</button>')}
+        </div>
+        <div class="dash-directors-section">
+            <div class="section-title">YOUR DIRECTORS</div>
+            ${(()=>{
+                if(!_allDirEntries.length)return'<div class="card dash-directors-card"><div class="muted text-small">No director assigned.</div></div>';
+                const volDiscord={};
+                (S.data.allVolunteers||[]).forEach(v=>{if(v.name)volDiscord[v.name.toLowerCase()]=v.discord||'';});
+                const cards=_allDirEntries.flatMap(({roleMeta,trackCfg:tc,names})=>{
+                    const tColor=tc.color||trackColor;
+                    const tGlow=tc.glow||trackColorG;
+                    return names.map(n=>{
+                        const discord=volDiscord[n.toLowerCase()]||'';
+                        return`<div class="card dash-directors-card">
+                            <div class="dash-dir-row">
+                                <div class="dash-dir-icon" style="background:${tGlow};color:${tColor}">${tc.icon||'👤'}</div>
+                                <div>
+                                    <div class="dash-dir-title">${esc(roleMeta.title)}</div>
+                                    <div class="dash-dir-name">${esc(n)}</div>
+                                    ${discord?`<div class="dash-dir-discord">Discord: @${esc(discord)}</div>`:''}
                                 </div>
-                            </div>`;
-                        });
-                    }).filter(Boolean).join('');
-                    return`<div style="display:flex;flex-direction:column;gap:8px">${cards}</div>`;
-                })()}
-            </div>
+                            </div>
+                        </div>`;
+                    });
+                }).filter(Boolean).join('');
+                return`<div class="dash-dir-grid">${cards}</div>`;
+            })()}
         </div>`;
     // Clicking a registration card opens the detail modal
     root.querySelectorAll('.dash-assign-card').forEach(card=>{
