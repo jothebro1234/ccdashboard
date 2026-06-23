@@ -12,10 +12,62 @@ const S = {
     dirRole: null,  // the director role when in volunteer view
     volUser: null,  // volunteer record if a director is also a volunteer
     _dirUser: null, // saved director user when switching views
-    chapData: null, // { name, school } fr chapter_rep
+    chapData: null, // { name, school } for chapter_rep
+    authorizedChapters: [], // [{name, school}] for directors granted chapter access
 };
 
 let _othersExpanded = false;
+let _actChapterFilter = 'eligible'; // 'eligible' | 'my_chapter' | 'all'
+
+/* ── School / Chapter helpers ────────────────────────────── */
+function normalizeSchool(s){
+    return(s||'').toLowerCase()
+        .replace(/[.']/g,'').replace(/[^a-z0-9\s]/g,' ')
+        .replace(/\bhs\b/g,'high school').replace(/\bms\b/g,'middle school')
+        .replace(/\bjhs\b/g,'junior high school')
+        .replace(/\s+/g,' ').trim();
+}
+function schoolsMatch(a,b){
+    const na=normalizeSchool(a),nb=normalizeSchool(b);
+    if(!na||!nb)return false;
+    if(na===nb)return true;
+    if(na.includes(nb)||nb.includes(na))return true;
+    const ta=new Set(na.split(' ').filter(t=>t.length>2));
+    const tb=new Set(nb.split(' ').filter(t=>t.length>2));
+    let n=0;ta.forEach(t=>{if(tb.has(t))n++;});
+    return n>=2;
+}
+function getMyChapterSchool(){
+    if(S.chapData?.school)return S.chapData.school;
+    if(S.authorizedChapters?.length)return S.authorizedChapters[0].school;
+    return S.user?.school||'';
+}
+// curriculum: r[12] = chapter label; events: r[10] = chapter label
+function getItemChapter(r,type){return type==='event'?(r[10]||'').trim():(r[12]||'').trim();}
+function isEligibleForItem(r,type){
+    const label=getItemChapter(r,type);
+    if(!label)return true;
+    const mySchool=getMyChapterSchool();
+    if(!mySchool)return false;
+    return schoolsMatch(mySchool,label);
+}
+function getMyAuthorizedChapters(){
+    if(S.role==='chapter_rep'&&S.chapData?.school)return[S.chapData.school];
+    return(S.authorizedChapters||[]).map(c=>c.school);
+}
+function isChapterScopedDirector(){
+    return S.role==='chapter_rep'||(S.authorizedChapters?.length>0);
+}
+// Filters director-panel items to only the chapters the current user can manage
+function dirChapterFilterItems(items,type){
+    const chapSchools=getMyAuthorizedChapters();
+    if(!chapSchools.length)return items;
+    return items.filter(r=>{
+        const label=getItemChapter(r,type);
+        if(!label)return false;
+        return chapSchools.some(s=>schoolsMatch(s,label));
+    });
+}
 
 /* ── Role helpers ─────────────────────────────────────────── */
 const EXEC_ROLES=['president','cef','vp','sec','tres','cpo'];
@@ -585,6 +637,7 @@ function saveSession() {
         localStorage.setItem(SESSION_KEY,JSON.stringify({
             role:S.role,dirRole:S.dirRole,user:S.user,
             volUser:S.volUser||null,chapData:S.chapData||null,
+            authorizedChapters:S.authorizedChapters||[],
         }));
     } catch(_) {}
 }
@@ -595,6 +648,7 @@ async function restoreSession(sess) {
     S.user=sess.user;
     S.volUser=sess.volUser||null;
     S.chapData=sess.chapData||null;
+    S.authorizedChapters=sess.authorizedChapters||[];
     S._dirUser=sess.dirRole?sess.user:null;
     if(S.role==='volunteer'){
         await loadVolunteerData(S.user.name);
@@ -725,6 +779,11 @@ async function handleGoogleSignIn(credentialResponse) {
             S.user={name:dirName,email,role,track:getDirTrack(role),avatar:payload.picture||''};
             S._dirUser=S.user;
             S.volUser=volUser;
+            // Check if this director is also authorized for any chapters (col L = index 11)
+            S.authorizedChapters=chapRows.slice(1).filter(r=>{
+                const authEmails=(r[11]||'').split(',').map(e=>e.trim().toLowerCase()).filter(Boolean);
+                return authEmails.includes(email);
+            }).map(r=>({name:(r[1]||'').trim(),school:(r[2]||'').trim()}));
             await launchDirectorPortal(role);
             return;
         }
@@ -1466,32 +1525,35 @@ function renderCurrList(filter) {
     startCountdownTimers();
 }
 
-function currSimpleRowHTML(r) {
+function currSimpleRowHTML(r,notEligible=false) {
     const name=r[0]||'Untitled';
     const hours=r[2]||'0';
+    const chapterLabel=r[12]||'';
     const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const done=isCompleted(r[1]);
     const locked=isClosed(r[5],r[1]);
     const count=credited.length||regList.length;
     let badge='';
-    if(done)badge='<span class="curr-done-badge" style="font-size:10px;padding:2px 8px">Done</span>';
+    if(notEligible)badge='<span class="chap-only-badge" style="font-size:10px;padding:2px 8px">🏫 Chapter only</span>';
+    else if(done)badge='<span class="curr-done-badge" style="font-size:10px;padding:2px 8px">Done</span>';
     else if(locked)badge='<span class="curr-lock-badge" style="font-size:10px;padding:2px 8px">Locked</span>';
     else badge='<span class="curr-open-badge" style="font-size:10px;padding:2px 8px">Open</span>';
     const ap=cardAppearance(r);
-    return `<div class="curr-simple-row ${done?'done':''}" data-name="${esc(name)}" style="cursor:pointer">
-        <span class="curr-simple-icon">${done?'✅':locked?'🔒':'📋'}</span>
+    return `<div class="curr-simple-row ${done?'done':''} ${notEligible?'chap-only-other':''}" data-name="${esc(name)}" style="cursor:pointer">
+        <span class="curr-simple-icon">${notEligible?'🏫':done?'✅':locked?'🔒':'📋'}</span>
         <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="curr-simple-name">${esc(name)}</span>${ap.badge}</div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="curr-simple-name">${esc(name)}</span>${ap.badge}${chapterLabel&&!notEligible?`<span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
             <div class="curr-simple-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
         </div>
         <span class="curr-simple-badge">${badge}</span>
     </div>`;
 }
 
-function currCardHTML(r,lowerName) {
+function currCardHTML(r,lowerName,notEligible=false) {
     const name=r[0]||'Untitled';
     const hours=r[2]||'0';
+    const chapterLabel=r[12]||'';
     const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const startDate=r[5]||'';
     const maxVols=parseInt(r[6])||0;
@@ -1539,6 +1601,23 @@ function currCardHTML(r,lowerName) {
         creditedHTML=`<div class="curr-subsection"><div class="curr-subsection-lbl">Hours confirmed</div><div class="slot-grid">${cslots}</div></div>`;
     }
 
+    // Chapter-only restriction
+    if(notEligible){
+        const ap=cardAppearance(r);
+        return `<div class="curr-card curr-clickable chap-only-other ${ap.cls}"${ap.style?` style="${ap.style}"`:''}  data-name="${esc(name)}">
+            <div style="display:flex;align-items:flex-start;gap:12px">
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                        <div class="curr-title" style="margin-bottom:0">${esc(name)}</div>
+                        <span class="chap-only-badge">🏫 ${esc(chapterLabel)}</span>
+                    </div>
+                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(r[1])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
+                </div>
+                <div style="flex-shrink:0"><span class="curr-lock-badge">🏫 Chapter only</span></div>
+            </div>
+        </div>`;
+    }
+
     // Action buttons (no Details button — click card to open detail)
     let actionHTML='';
     if(!isCredited){
@@ -1556,6 +1635,7 @@ function currCardHTML(r,lowerName) {
     const cardCls=done?'curr-completed':locked&&!isCredited?'curr-locked':'';
     const ap=cardAppearance(r);
     const styleAttr=ap.style?` style="${ap.style}"`:'';
+    const chapBadge=chapterLabel?`<span class="chapter-label-badge">🏫 ${esc(chapterLabel)}</span>`:'';
     const exSparkles=ap.isExclusive
         ?`<span class="ex-sparkle" style="top:8px;right:10px;--ex-sz:12px;--ex-color:#d4960e;--ex-dur:1.8s;--ex-delay:0s;--ex-scale:1.5">✦</span>`+
           `<span class="ex-sparkle" style="top:24px;left:22px;--ex-sz:7px;--ex-color:#8059d8;--ex-dur:2.3s;--ex-delay:.4s;--ex-scale:1.7">✦</span>`+
@@ -1566,7 +1646,10 @@ function currCardHTML(r,lowerName) {
     return `<div class="curr-card ${cardCls} ${isCredited?'curr-credited':''} curr-clickable ${ap.cls}" data-name="${esc(name)}"${styleAttr}>
         ${exSparkles}<div style="display:flex;align-items:flex-start;gap:12px">
             <div style="flex:1;min-width:0">
-                ${ap.badge?`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><div class="curr-title" style="margin-bottom:0">${esc(name)}</div>${ap.badge}</div>`:`<div class="curr-title">${esc(name)}</div>`}
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                    <div class="curr-title" style="margin-bottom:0">${esc(name)}</div>
+                    ${chapBadge}${ap.badge}
+                </div>
                 <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(r[1])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
                 ${signupCloseHTML}
@@ -1873,11 +1956,14 @@ function viewDirectorPanel(activeTab) {
         {id:'roster', label:'👥 Roster'},
     ];
 
+    const chapScoped=isChapterScopedDirector();
+    const chapScopeName=chapScoped?getMyAuthorizedChapters()[0]||S.chapData?.school||'':'';
+    const subtitleSuffix=chapScopeName?` · ${esc(chapScopeName)} Chapter`:'';
     root.innerHTML=`
         <div class="view-header">
             <div>
                 <div class="view-title">${esc(roleInfo.title)}</div>
-                <div class="view-subtitle">${esc(roleInfo.track||'All Tracks')} · Director View</div>
+                <div class="view-subtitle">${esc(roleInfo.track||'All Tracks')} · Director View${subtitleSuffix}</div>
             </div>
             <div class="view-actions">
                 <button class="btn btn-ghost btn-sm" id="dir-refresh-btn">↺ Refresh</button>
@@ -1954,7 +2040,9 @@ function attachRosterEvents() {
 
 /* ─── POST ASSIGNMENT (DOC) ─────────────────────────────────── */
 function dirPostAssignHTML() {
-    const existing=S.data.curriculum||[];
+    const isChapScoped=isChapterScopedDirector();
+    const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
+    const existing=dirChapterFilterItems(S.data.curriculum||[],'curr');
     const existingCards=existing.slice().reverse().map(r=>{
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
         const maxVols=parseInt(r[6])||0;
@@ -2024,6 +2112,11 @@ function dirPostAssignHTML() {
                         <label class="form-label">Custom Label <span style="font-size:11px;color:var(--textm);font-weight:600">(badge shown on card — optional)</span></label>
                         <input class="form-input" id="pa-label" placeholder="e.g. Urgent, Bonus, Week 3, Special">
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">Chapter Label ${isChapScoped?'<span style="font-size:11px;color:var(--textm);font-weight:600">(auto-filled)</span>':''}</label>
+                        ${buildChapComboHTML('pa-chapter',chapSchool)}
+                        <div class="form-hint">Leave blank for org-wide. Only chapter members will be able to register.</div>
+                    </div>
                     <div class="form-err" id="pa-err"></div>
                     <button class="btn btn-primary" id="pa-submit-btn">📋 Post Assignment</button>
                 </div>
@@ -2037,6 +2130,9 @@ function dirPostAssignHTML() {
 
 function attachPostAssignEvents() {
     initColorDecoPickerEvents('pa-color','pa-deco','pa-color-row','pa-deco-row');
+    const isChapScoped=isChapterScopedDirector();
+    const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
+    initChapCombo('pa-chapter',chapSchool,isChapScoped);
     document.getElementById('pa-submit-btn').onclick=async()=>{
         const name=document.getElementById('pa-name').value.trim();
         const slides=document.getElementById('pa-slides').value.trim();
@@ -2048,6 +2144,7 @@ function attachPostAssignEvents() {
         const cardColor=document.getElementById('pa-color').value;
         const cardDeco=document.getElementById('pa-deco').value;
         const cardLabel=document.getElementById('pa-label').value.trim();
+        const chapterLabel=document.getElementById('pa-chapter').value.trim();
         const err=document.getElementById('pa-err');
         if(!name||!due||!start||!hours||!max||!instructions){err.textContent='All fields including instructions are required.';return;}
         err.textContent='';
@@ -2057,7 +2154,7 @@ function attachPostAssignEvents() {
             await postAction('create_curriculum',{
                 assignmentName:name,dueDate:due,hours,contributors:'',
                 slidesLink:slides,startDate:start,maxVolunteers:max,
-                registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,
+                registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,chapterLabel,
             });
             toast(`"${name}" posted!`,'success');
             ['pa-name','pa-slides','pa-due','pa-start','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
@@ -2112,6 +2209,9 @@ function showEditAssignment(r) {
     const selColor=(r[9]||'').trim();
     const selDeco=(r[10]||'').trim();
     const selLabel=(r[11]||'').trim();
+    const selChapter=(r[12]||'').trim();
+    const isChapScoped=isChapterScopedDirector();
+    const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
     const html=`
         <div class="modal-header">
             <div class="modal-title">Edit Assignment</div>
@@ -2156,12 +2256,18 @@ function showEditAssignment(r) {
                     <label class="form-label">Custom Label <span style="font-size:11px;color:var(--textm);font-weight:600">(badge on card — optional)</span></label>
                     <input class="form-input" id="ed-label" value="${esc(selLabel)}" placeholder="e.g. Urgent, Bonus, Week 3, Special">
                 </div>
+                <div class="form-group">
+                    <label class="form-label">Chapter Label ${isChapScoped?'<span style="font-size:11px;color:var(--textm);font-weight:600">(auto-filled)</span>':''}</label>
+                    ${buildChapComboHTML('ed-chapter',selChapter||chapSchool)}
+                    <div class="form-hint">Leave blank for org-wide. Only chapter members will be able to register.</div>
+                </div>
                 <div class="form-err" id="ed-err"></div>
                 <button class="btn btn-primary" id="ed-submit-btn">Save Changes</button>
             </div>
         </div>`;
     const close=openModal(html);
     initColorDecoPickerEvents('ed-color','ed-deco','ed-color-row','ed-deco-row');
+    initChapCombo('ed-chapter',selChapter||chapSchool,isChapScoped);
     document.getElementById('ed-submit-btn').addEventListener('click',async()=>{
         const slides=document.getElementById('ed-slides').value.trim();
         const due=document.getElementById('ed-due').value;
@@ -2172,13 +2278,14 @@ function showEditAssignment(r) {
         const cardColor=document.getElementById('ed-color').value;
         const cardDeco=document.getElementById('ed-deco').value;
         const cardLabel=document.getElementById('ed-label').value.trim();
+        const chapterLabel=document.getElementById('ed-chapter').value.trim();
         const err=document.getElementById('ed-err');
         if(!due){err.textContent='Due date is required.';return;}
         err.textContent='';
         const btn=document.getElementById('ed-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            await postAction('edit_curriculum',{assignmentName:name,fields:{slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel}});
+            await postAction('edit_curriculum',{assignmentName:name,fields:{slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel}});
             toast(`"${name}" updated!`,'success');
             close();
             const track=getDirTrack(S.role);
@@ -2190,7 +2297,8 @@ function showEditAssignment(r) {
 
 /* ─── GIVE HOURS (DOC) ──────────────────────────────────────── */
 function dirGiveHoursHTML() {
-    const assignments=[...(S.data.curriculum||[])].reverse(); // newest first
+    const rawAssignments=dirChapterFilterItems(S.data.curriculum||[],'curr');
+    const assignments=[...rawAssignments].reverse(); // newest first
     if(!assignments.length)return mascotEmpty('No assignments yet','Post assignments first, then give hours after volunteers complete the work.');
     const allVols=S.data.allVolunteers||[];
     const discordMap={};
@@ -2480,6 +2588,12 @@ function viewActivities() {
             <button class="panel-tab" data-tab="mine">My Past Volunteering</button>
             <button class="panel-tab" data-tab="all">All (${total})</button>
         </div>
+        <div class="act-filter-row" id="act-filter-row">
+            <span class="act-filter-label">Show:</span>
+            <button class="act-filter-chip${_actChapterFilter==='eligible'?' active':''}" data-cf="eligible">✅ Eligible</button>
+            <button class="act-filter-chip${_actChapterFilter==='my_chapter'?' active':''}" data-cf="my_chapter">🏫 My Chapter</button>
+            <button class="act-filter-chip${_actChapterFilter==='all'?' active':''}" data-cf="all">🌐 All</button>
+        </div>
         <div class="act-split">
             <div id="act-col-events"></div>
             <div id="act-col-curriculum"></div>
@@ -2496,6 +2610,14 @@ function viewActivities() {
             root.querySelectorAll('#act-tabs .panel-tab').forEach(t=>t.classList.remove('active'));
             tab.classList.add('active');
             renderActivitiesList(tab.dataset.tab);
+        };
+    });
+    root.querySelectorAll('.act-filter-chip').forEach(chip=>{
+        chip.onclick=()=>{
+            _actChapterFilter=chip.dataset.cf;
+            root.querySelectorAll('.act-filter-chip').forEach(c=>c.classList.toggle('active',c.dataset.cf===_actChapterFilter));
+            const activeTab=root.querySelector('#act-tabs .panel-tab.active')?.dataset.tab||'available';
+            renderActivitiesList(activeTab);
         };
     });
     renderActivitiesList('available');
@@ -2532,12 +2654,39 @@ function renderActivitiesList(filter) {
         });
     }
 
+    // Apply chapter filter
+    // 'eligible': hide non-eligible chapter-only items entirely
+    // 'my_chapter': show only items tagged for my chapter
+    // 'all': show everything, non-eligible sorted to bottom
+    let evNotEligible=new Set(), currNotEligible=new Set();
+    if(_actChapterFilter==='eligible'){
+        filteredEvs=filteredEvs.filter(r=>isEligibleForItem(r,'event'));
+        filteredAssign=filteredAssign.filter(r=>isEligibleForItem(r,'curr'));
+    } else if(_actChapterFilter==='my_chapter'){
+        const mySchool=getMyChapterSchool();
+        filteredEvs=filteredEvs.filter(r=>{const l=getItemChapter(r,'event');return l&&schoolsMatch(mySchool,l);});
+        filteredAssign=filteredAssign.filter(r=>{const l=getItemChapter(r,'curr');return l&&schoolsMatch(mySchool,l);});
+    } else if(_actChapterFilter==='all'){
+        // Sort: eligible first, then non-eligible grayed at bottom
+        const sortChap=(items,type)=>{
+            const elig=items.filter(r=>isEligibleForItem(r,type));
+            const other=items.filter(r=>!isEligibleForItem(r,type));
+            other.forEach(r=>evNotEligible.add(r[0]));
+            return [...elig,...other];
+        };
+        filteredEvs=sortChap(filteredEvs,'event');
+        filteredAssign=sortChap(filteredAssign,'curr');
+        // rebuild notEligible sets properly
+        evNotEligible=new Set(filteredEvs.filter(r=>!isEligibleForItem(r,'event')).map(r=>r[0]));
+        currNotEligible=new Set(filteredAssign.filter(r=>!isEligibleForItem(r,'curr')).map(r=>r[0]));
+    }
+
     // Events column (left)
     const evHeader=`<div class="act-col-header">📅 Upcoming Events<span class="act-col-count">${filteredEvs.length}</span></div>`;
     if(filteredEvs.length){
         const cards=filter==='all'
-            ?filteredEvs.map(r=>evSimpleRowHTML(r)).join('')
-            :filteredEvs.map(r=>evCardHTML(r,lower)).join('');
+            ?filteredEvs.map(r=>evSimpleRowHTML(r,evNotEligible.has(r[0]))).join('')
+            :filteredEvs.map(r=>evCardHTML(r,lower,evNotEligible.has(r[0]))).join('');
         evCol.innerHTML=evHeader+cards;
     } else {
         evCol.innerHTML=evHeader+`<div class="muted text-small" style="padding:10px 0">No events to show.</div>`;
@@ -2547,8 +2696,8 @@ function renderActivitiesList(filter) {
     const currHeader=`<div class="act-col-header">📚 Curriculum Opportunities<span class="act-col-count">${filteredAssign.length}</span></div>`;
     if(filteredAssign.length){
         const cards=filter==='all'
-            ?filteredAssign.map(r=>currSimpleRowHTML(r)).join('')
-            :filteredAssign.map(r=>currCardHTML(r,lower)).join('');
+            ?filteredAssign.map(r=>currSimpleRowHTML(r,currNotEligible.has(r[0]))).join('')
+            :filteredAssign.map(r=>currCardHTML(r,lower,currNotEligible.has(r[0]))).join('');
         currCol.innerHTML=currHeader+cards;
     } else {
         currCol.innerHTML=currHeader+`<div class="muted text-small" style="padding:10px 0">No assignments to show.</div>`;
@@ -2575,7 +2724,7 @@ function renderActivitiesList(filter) {
     startCountdownTimers();
 }
 
-function evCardHTML(r,lowerName) {
+function evCardHTML(r,lowerName,notEligible=false) {
     const name=r[0]||'Untitled';
     const evDate=r[1]||'';
     const hours=r[2]||'0';
@@ -2643,6 +2792,23 @@ function evCardHTML(r,lowerName) {
         creditedHTML=`<div class="curr-subsection"><div class="curr-subsection-lbl">Hours confirmed</div><div class="slot-grid">${cslots}</div></div>`;
     }
 
+    // Chapter-only restriction for non-eligible viewers
+    if(notEligible){
+        const eapN=evCardAppearance(r);
+        return `<div class="curr-card ev-card chap-only-other${eapN.cls?' '+eapN.cls:''}" data-name="${esc(name)}" data-type="event"${eapN.style?` style="${eapN.style}"`:''}>`+`
+            <div style="display:flex;align-items:flex-start;gap:12px">
+                <div style="flex:1;min-width:0">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+                        <div class="curr-title" style="margin-bottom:0">${esc(name)}</div>
+                        <span class="chap-only-badge">🏫 ${esc(chapterLabel)}</span>
+                    </div>
+                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
+                </div>
+                <div style="flex-shrink:0"><span class="curr-lock-badge">🏫 Chapter only</span></div>
+            </div>
+        </div>`;
+    }
+
     let actionHTML='';
     if(!isCredited){
         const ymcaBlocked=requiresYMCA&&!hasYMCAForm&&!isRegistered;
@@ -2681,7 +2847,7 @@ function evCardHTML(r,lowerName) {
     </div>`;
 }
 
-function evSimpleRowHTML(r) {
+function evSimpleRowHTML(r,notEligible=false) {
     const name=r[0]||'Untitled';
     const evDate=r[1]||'';
     const hours=r[2]||'0';
@@ -2693,13 +2859,14 @@ function evSimpleRowHTML(r) {
     const closed=closeDate&&toDateStr(closeDate)<localToday();
     const count=credited.length||regList.length;
     let badge='';
-    if(done)badge='<span class="curr-done-badge" style="font-size:10px;padding:2px 8px">Done</span>';
+    if(notEligible)badge='<span class="chap-only-badge" style="font-size:10px;padding:2px 8px">🏫 Chapter only</span>';
+    else if(done)badge='<span class="curr-done-badge" style="font-size:10px;padding:2px 8px">Done</span>';
     else if(closed)badge='<span class="curr-lock-badge" style="font-size:10px;padding:2px 8px">Closed</span>';
     else badge='<span class="curr-open-badge" style="font-size:10px;padding:2px 8px">Open</span>';
-    return `<div class="curr-simple-row ${done?'done':''}" data-name="${esc(name)}" data-type="event" style="cursor:pointer">
-        <span class="curr-simple-icon">${done?'✅':closed?'🔒':'📅'}</span>
+    return `<div class="curr-simple-row ${done?'done':''} ${notEligible?'chap-only-other':''}" data-name="${esc(name)}" data-type="event" style="cursor:pointer">
+        <span class="curr-simple-icon">${notEligible?'🏫':done?'✅':closed?'🔒':'📅'}</span>
         <div style="flex:1;min-width:0">
-            <div class="curr-simple-name">${esc(name)}${chapterLabel?` <span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
+            <div class="curr-simple-name">${esc(name)}${chapterLabel&&!notEligible?` <span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
             <div class="curr-simple-meta">${fmtDateTimeStr(evDate)} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
         </div>
         <span class="curr-simple-badge">${badge}</span>
@@ -2855,9 +3022,11 @@ function attachActivitiesEvents() {
    DIRECTOR: POST EVENT
    ═══════════════════════════════════════════════════════════════ */
 function dirPostEventHTML() {
-    const existing=(S.data.upcomingEvents||[]).slice().reverse();
+    const isChapScoped=isChapterScopedDirector();
+    const rawExisting=isChapScoped?dirChapterFilterItems(S.data.upcomingEvents||[],'event'):S.data.upcomingEvents||[];
+    const existing=rawExisting.slice().reverse();
     const isChapRep=S.role==='chapter_rep';
-    const chapSchool=S.chapData?.school||'';
+    const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
 
     const existingCards=existing.map(r=>{
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
@@ -3127,7 +3296,8 @@ function showEditEvent(r) {
    DIRECTOR: GIVE EVENT HOURS
    ═══════════════════════════════════════════════════════════════ */
 function dirGiveEventHoursHTML() {
-    const events=(S.data.upcomingEvents||[]).slice().reverse();
+    const rawEvents=dirChapterFilterItems(S.data.upcomingEvents||[],'event');
+    const events=rawEvents.slice().reverse();
     if(!events.length)return mascotEmpty('No upcoming events yet','Post upcoming events first, then give hours after they happen.');
     const allVols=S.data.allVolunteers||[];
     const discordMap={};

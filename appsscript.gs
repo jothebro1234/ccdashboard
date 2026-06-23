@@ -191,6 +191,7 @@ function createCurriculum(b) {
         b.cardColor      || '',
         b.cardDeco       || '',
         b.cardLabel      || '',
+        b.chapterLabel   || '',
     ]);
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
@@ -217,6 +218,7 @@ function editCurriculum(b) {
     if (f.cardColor     !== undefined) sh.getRange(rowIdx, 10).setValue(f.cardColor);
     if (f.cardDeco      !== undefined) sh.getRange(rowIdx, 11).setValue(f.cardDeco);
     if (f.cardLabel     !== undefined) sh.getRange(rowIdx, 12).setValue(f.cardLabel);
+    if (f.chapterLabel  !== undefined) sh.getRange(rowIdx, 13).setValue(f.chapterLabel);
     return 'Updated: ' + b.assignmentName;
 }
 
