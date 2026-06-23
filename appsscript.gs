@@ -14,18 +14,20 @@
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
  *   O=YMCAFormURL
  *
- * CURRICULUM SHEET columns (A–L):
+ * CURRICULUM SHEET columns (A–M):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
- *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel
+ *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel  M=ChapterLabel
  *
  * EVENTS SHEET columns (A–O):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
  *   G=MaxVolunteers  H=RegisteredList  I=SignupCloseDate  J=Instructions  K=ChapterLabel
  *   L=CardColor  M=CardDeco  N=CardLabel  O=RequiresYMCA
  *
- * CHAPTERS SHEET columns (A–C):
- *   A=Email  B=Name  C=School
+ * CHAPTERS SHEET columns (A–L):
+ *   A=Email  B=Name  C=School  D=Logo  E=State  F=City
+ *   G=PresidentPhoto  H=VicePresident  I=Treasurer  J=Secretary  K=SocialMedia
+ *   L=AuthorizedDirectors (comma-separated emails)
  *
  * DIRECTORS SHEET columns (A–C):
  *   A=Email  B=Name  C=Role
@@ -52,9 +54,9 @@ function getSheet(name) {
 
 function initSheetHeaders(sh, name) {
     const headers = {
-        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel'],
+        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel'],
         Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'],
-        Chapters:   ['Email','Name','School'],
+        Chapters:   ['Email','Name','School','Logo','State','City','PresidentPhoto','VicePresident','Treasurer','Secretary','SocialMedia','AuthorizedDirectors'],
         Directors:  ['Email','Name','Role'],
     };
     if (headers[name]) sh.appendRow(headers[name]);
@@ -77,7 +79,6 @@ function findOrAddColumn(sh, headerName) {
 /* Fills in any missing header cells for sheets that existed before new columns were added */
 function ensureMissingHeaders(sh, name) {
     if (name === 'Events') {
-        // Events uses fixed positions — safe because it's managed entirely by this app
         const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
@@ -87,7 +88,6 @@ function ensureMissingHeaders(sh, name) {
             }
         });
     } else if (name === 'Volunteers') {
-        // Volunteers sheet may have extra columns from Google Forms — append-only
         findOrAddColumn(sh, 'YMCAFormURL');
     }
 }
@@ -131,7 +131,6 @@ function datePartStr(val) {
 /* ── doPost ─────────────────────────────────────────────────── */
 function doPost(e) {
     try {
-        // Migrate any existing sheets that are missing new header columns
         ensureMissingHeaders(getSheet(SHEET_EVENTS),     'Events');
         ensureMissingHeaders(getSheet(SHEET_VOLUNTEERS), 'Volunteers');
         const body   = JSON.parse(e.postData.contents);
@@ -144,9 +143,75 @@ function doPost(e) {
     }
 }
 
-function doGet() {
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, msg: 'Curio Crate Apps Script running.' }))
+function doGet(e) {
+    const action = (e && e.parameter && e.parameter.action) || '';
+
+    if (action === 'get_chapters') return getChapters();
+
+    if (action === 'get_updates') {
+        var updatesSheet = SS.getSheetByName('Updates');
+        if (!updatesSheet) {
+            return ContentService
+                .createTextOutput(JSON.stringify({ ok: false, error: 'No Updates sheet' }))
+                .setMimeType(ContentService.MimeType.JSON);
+        }
+        var rows = updatesSheet.getDataRange().getValues();
+        var updates = [];
+        for (var i = 1; i < rows.length; i++) {
+            var r = rows[i];
+            if (!r[2]) continue;
+            var dateVal = r[0];
+            var dateStr = (dateVal instanceof Date)
+                ? Utilities.formatDate(dateVal, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+                : String(dateVal);
+            updates.push({
+                date:     dateStr,
+                category: String(r[1] || ''),
+                title:    String(r[2] || ''),
+                body:     String(r[3] || ''),
+                image:    String(r[4] || ''),
+            });
+        }
+        return ContentService
+            .createTextOutput(JSON.stringify({ ok: true, updates: updates }))
+            .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    return ContentService
+        .createTextOutput(JSON.stringify({ ok: true, msg: 'Curio Crate Apps Script running.' }))
         .setMimeType(ContentService.MimeType.JSON);
+}
+
+function getChapters() {
+    try {
+        const sheet = SS.getSheetByName(SHEET_CHAPTERS);
+        if (!sheet) return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'Chapters sheet not found' }))
+            .setMimeType(ContentService.MimeType.JSON);
+        const rows = sheet.getDataRange().getValues();
+        const chapters = rows.slice(1)
+            .filter(function(r) { return String(r[2]).trim(); })
+            .map(function(r) {
+                return {
+                    email:                String(r[0]  || '').trim(),
+                    president:            String(r[1]  || '').trim(),
+                    school:               String(r[2]  || '').trim(),
+                    logo:                 String(r[3]  || '').trim(),
+                    state:                String(r[4]  || '').trim(),
+                    city:                 String(r[5]  || '').trim(),
+                    presidentPhoto:       String(r[6]  || '').trim(),
+                    vicePresident:        String(r[7]  || '').trim(),
+                    treasurer:            String(r[8]  || '').trim(),
+                    secretary:            String(r[9]  || '').trim(),
+                    socialMedia:          String(r[10] || '').trim(),
+                    authorizedDirectors:  String(r[11] || '').trim(),
+                };
+            });
+        return ContentService.createTextOutput(JSON.stringify({ ok: true, chapters: chapters }))
+            .setMimeType(ContentService.MimeType.JSON);
+    } catch(err) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: err.toString() }))
+            .setMimeType(ContentService.MimeType.JSON);
+    }
 }
 
 /* ── Router ─────────────────────────────────────────────────── */
@@ -180,18 +245,18 @@ function createCurriculum(b) {
     const sh = getSheet(SHEET_CURRICULUM);
     sh.appendRow([
         b.assignmentName,
-        b.dueDate        || '',
-        b.hours          || '',
-        b.contributors   || '',
-        b.slidesLink     || '',
-        b.startDate      || '',
-        b.maxVolunteers  || '',
+        b.dueDate              || '',
+        b.hours                || '',
+        b.contributors         || '',
+        b.slidesLink           || '',
+        b.startDate            || '',
+        b.maxVolunteers        || '',
         b.registeredVolunteers || '',
-        b.instructions   || '',
-        b.cardColor      || '',
-        b.cardDeco       || '',
-        b.cardLabel      || '',
-        b.chapterLabel   || '',
+        b.instructions         || '',
+        b.cardColor            || '',
+        b.cardDeco             || '',
+        b.cardLabel            || '',
+        b.chapterLabel         || '',
     ]);
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
@@ -208,7 +273,6 @@ function editCurriculum(b) {
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
     const f = b.fields || {};
-    // col numbers are 1-based for getRange
     if (f.dueDate       !== undefined) sh.getRange(rowIdx, 2).setValue(f.dueDate);
     if (f.hours         !== undefined) sh.getRange(rowIdx, 3).setValue(f.hours);
     if (f.slidesLink    !== undefined) sh.getRange(rowIdx, 5).setValue(f.slidesLink);
@@ -235,21 +299,18 @@ function registerCurriculum(b) {
     }
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
-    // Check lock date using string comparison to avoid UTC timezone issues
     const startDatePart = datePartStr(rowData[5]);
     const today = todayStr();
     if (startDatePart && startDatePart < today) {
         throw new Error('Registration is locked — the start date has passed.');
     }
 
-    // Check capacity
     const maxVols = parseInt(rowData[6]) || 0;
     const regList = (rowData[7] || '').split(',').map(function(n) { return n.trim(); }).filter(Boolean);
     if (maxVols > 0 && regList.length >= maxVols) {
         throw new Error('This assignment is full (' + maxVols + '/' + maxVols + ' slots).');
     }
 
-    // Add if not already registered
     const lower = (b.volunteerName || '').toLowerCase();
     if (!regList.some(function(n) { return n.toLowerCase() === lower; })) {
         regList.push(b.volunteerName);
@@ -271,7 +332,6 @@ function unregisterCurriculum(b) {
     }
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
-    // Check lock date using string comparison
     const startDatePart = datePartStr(rowData[5]);
     const today = todayStr();
     if (startDatePart && startDatePart < today) {
@@ -298,10 +358,8 @@ function giveHours(b) {
     }
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
-    // Accept explicit attendees list (supports removing no-shows).
-    // Falls back to copying RegisteredList if not provided.
     const attendees = b.attendees !== undefined ? b.attendees : (data[rowIdx - 1][7] || '');
-    sh.getRange(rowIdx, 4).setValue(attendees); // col D = Contributors
+    sh.getRange(rowIdx, 4).setValue(attendees);
     return 'Hours given for: ' + b.assignmentName;
 }
 
@@ -389,7 +447,6 @@ function registerEvent(b) {
     }
     if (rowIdx < 0) throw new Error('Event not found: ' + b.eventName);
 
-    // Check YMCA form requirement
     const requiresYMCA = (rowData[14] || '').toString().trim().toUpperCase() === 'TRUE';
     if (requiresYMCA) {
         const volFound = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
@@ -397,21 +454,18 @@ function registerEvent(b) {
         if (!ymcaUrl) throw new Error('This event requires a signed YMCA volunteer form. Please upload your form in the portal (My Progress → Required Forms) before registering.');
     }
 
-    // Check signup close date
     const closeDatePart = datePartStr(rowData[8]);
     const today = todayStr();
     if (closeDatePart && closeDatePart < today) {
         throw new Error('Event registration is closed.');
     }
 
-    // Check capacity
     const maxVols = parseInt(rowData[6]) || 0;
     const regList = (rowData[7] || '').split(',').map(function(n) { return n.trim(); }).filter(Boolean);
     if (maxVols > 0 && regList.length >= maxVols) {
         throw new Error('This event is full (' + maxVols + '/' + maxVols + ' slots).');
     }
 
-    // Add if not already registered
     const lower = (b.volunteerName || '').toLowerCase();
     if (!regList.some(function(n) { return n.toLowerCase() === lower; })) {
         regList.push(b.volunteerName);
@@ -459,7 +513,6 @@ function giveEventHours(b) {
     }
     if (rowIdx < 0) throw new Error('Event not found: ' + b.eventName);
 
-    // Write the attendees list (with no-shows excluded) to col D
     sh.getRange(rowIdx, 4).setValue(b.attendees || '');
     return 'Event hours given for: ' + b.eventName;
 }
@@ -469,14 +522,14 @@ function giveEventHours(b) {
 function updateTier(b) {
     const found = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
     if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
-    updateCell(SHEET_VOLUNTEERS, found[0], 6, b.newTier); // col G (0-indexed 6)
+    updateCell(SHEET_VOLUNTEERS, found[0], 6, b.newTier);
     return 'Tier updated: ' + b.volunteerName + ' → ' + b.newTier;
 }
 
 function setHoursGoal(b) {
     const found = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
     if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
-    updateCell(SHEET_VOLUNTEERS, found[0], 13, b.goal); // col N (0-indexed 13)
+    updateCell(SHEET_VOLUNTEERS, found[0], 13, b.goal);
     return 'Hours goal set: ' + b.volunteerName + ' → ' + b.goal;
 }
 
@@ -501,7 +554,7 @@ function uploadYMCAForm(b) {
     const found = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
     if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
     const ymcaCol = findOrAddColumn(getSheet(SHEET_VOLUNTEERS), 'YMCAFormURL');
-    updateCell(SHEET_VOLUNTEERS, found[0], ymcaCol - 1, url); // updateCell uses 0-indexed col
+    updateCell(SHEET_VOLUNTEERS, found[0], ymcaCol - 1, url);
     return url;
 }
 
@@ -516,14 +569,13 @@ function onFormSubmit(e) {
     const row = e.range.getRow();
     const sh  = e.range.getSheet();
 
-    // Col J (column 10, 1-based) = "Select Your Main Specialty"
     const specialty = sh.getRange(row, 10).getValue();
     const track     = specialtyToTrack(specialty);
 
-    if (track) sh.getRange(row, 6).setValue(track); // F: Track
-    sh.getRange(row, 7).setValue('1');               // G: Tier = Explorer
-    sh.getRange(row, 8).setValue('FALSE');           // H: Lead = false
-    sh.getRange(row, 9).setValue('0');               // I: CyclesCompleted = 0
+    if (track) sh.getRange(row, 6).setValue(track);
+    sh.getRange(row, 7).setValue('1');
+    sh.getRange(row, 8).setValue('FALSE');
+    sh.getRange(row, 9).setValue('0');
 }
 
 function specialtyToTrack(specialty) {
