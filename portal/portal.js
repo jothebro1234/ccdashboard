@@ -893,7 +893,8 @@ function renderSidebar() {
         const school=((isUnified?S.volUser:S.user)?.school||'').toLowerCase().trim();
         const hasChapter=school&&(S.data.chapters||[]).some(r=>(r[2]||'').trim().toLowerCase()===school);
         mainItems=[
-            {id:'activities',icon:'📚',label:'Activities'},
+            {id:'dashboard', icon:'🏠',label:'Dashboard'},
+            {id:'activities',icon:'📚',label:'Volunteer Opportunities'},
             {id:'calendar',  icon:'📅',label:'Calendar'},
         ];
         if(isUnified) mainItems.push({id:'director',icon:'⚙️',label:'Director Panel'});
@@ -903,7 +904,8 @@ function renderSidebar() {
         ];
     } else if(role==='chapter_rep'){
         mainItems=[
-            {id:'activities',icon:'📚',label:'Activities'},
+            {id:'dashboard', icon:'🏠',label:'Dashboard'},
+            {id:'activities',icon:'📚',label:'Volunteer Opportunities'},
             {id:'director',  icon:'⚙️',label:'Chapter Panel'},
             {id:'calendar',  icon:'📅',label:'Calendar'},
         ];
@@ -968,20 +970,14 @@ function renderSidebar() {
     });
 
     const brand=document.getElementById('sb-brand');
-    if(brand) brand.onclick=()=>{
-        if(isUnified) _setVolContext();
-        navigate(isUnified||role==='volunteer'?'dashboard':'director');
-        closeMobileSidebar();
-    };
+    if(brand) brand.onclick=null;
 }
 
 function activateSidebarItem(view) {
     document.querySelectorAll('.sb-item').forEach(el=>{
         el.classList.toggle('active',el.dataset.view===view);
     });
-    const brand=document.getElementById('sb-brand');
-    if(brand) brand.classList.toggle('active', view==='dashboard');
-    // 'overview' is accessed via profile click — no nav item to highlight
+    // brand is no longer a nav button — no active highlight needed
 }
 
 const PALETTE=['#38bdf8','#a78bfa','#22d3ee','#f472b6','#fb923c','#34d399','#fbbf24','#818cf8'];
