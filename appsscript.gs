@@ -30,7 +30,8 @@
  *   L=AuthorizedDirectors (comma-separated emails)
  *
  * DIRECTORS SHEET columns (A–C):
- *   A=Email  B=Name  C=Role
+ *   A=Email  B=Name  C=Role (e.g. doc, doo, dop, president, cef, vp, sec, tres, cpo, hr, mr, trial;
+ *            comma-separated to grant multiple roles, e.g. "doc, doo" for combined DOC+DOO access)
  */
 
 const SS = SpreadsheetApp.getActiveSpreadsheet();

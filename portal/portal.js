@@ -3,7 +3,8 @@
    ═══════════════════════════════════════════════════════════════ */
 const S = {
     user:   null,   // { name, email, track, tier, discord, school, avatar, lead, onTimeRate, lastContact }
-    role:   null,   // 'volunteer' | 'doc' | 'doo' | 'dop' | 'president' | 'chapter_rep' | etc.
+    role:   null,   // primary role: 'volunteer' | 'doc' | 'doo' | 'dop' | 'president' | 'chapter_rep' | etc.
+    roles:  null,   // full list of director roles for this user (Directors col C can be comma-separated, e.g. "doc,doo")
     view:   null,
     subTab: null,
     data:   {},     // { curriculum, events, allVolunteers, volunteers, lbData, lbReady, myStats, myRegistrations, myEventRegistrations, upcomingEvents, directors, chapters }
@@ -71,15 +72,26 @@ function dirChapterFilterItems(items,type){
 
 /* ── Role helpers ─────────────────────────────────────────── */
 const EXEC_ROLES=['president','cef','vp','sec','tres','cpo'];
-function isExecRole(r){return EXEC_ROLES.includes(r);}
-function canPostAssignment(r){return['doc','chapter_rep',...EXEC_ROLES].includes(r);}
-function canPostEvent(r){return['doo','chapter_rep',...EXEC_ROLES].includes(r);}
-function canGiveHoursAssign(r){return['doc','chapter_rep',...EXEC_ROLES].includes(r);}
-function canGiveHoursEvent(r){return['doo','chapter_rep',...EXEC_ROLES].includes(r);}
-function canManageTiersRole(r){return['hr',...EXEC_ROLES].includes(r);}
-function canRecordAdHoc(r){return['doo','chapter_rep',...EXEC_ROLES].includes(r);}
-function roleLabel(r){const m={doc:'DOC',doo:'DOO',dop:'DOP',president:'Pres',cef:'CEF',vp:'VP',sec:'Sec',tres:'Tres',cpo:'CPO',hr:'HR',mr:'MR',chapter_rep:'ChapRep',trial:'Trial'};return m[r]||String(r||'').toUpperCase();}
+// Directors sheet col C may hold multiple roles for one person, e.g. "doc, doo" — split on comma/slash.
+function parseRoleList(s){return[...new Set(String(s||'').split(/[,/]+/).map(x=>x.trim().toLowerCase()).filter(Boolean))];}
+function toRoleArr(r){return Array.isArray(r)?r:parseRoleList(r);}
+function isExecRole(r){return toRoleArr(r).some(x=>EXEC_ROLES.includes(x));}
+function canPostAssignment(r){return toRoleArr(r).some(x=>['doc','chapter_rep',...EXEC_ROLES].includes(x));}
+function canPostEvent(r){return toRoleArr(r).some(x=>['doo','chapter_rep',...EXEC_ROLES].includes(x));}
+function canGiveHoursAssign(r){return toRoleArr(r).some(x=>['doc','chapter_rep',...EXEC_ROLES].includes(x));}
+function canGiveHoursEvent(r){return toRoleArr(r).some(x=>['doo','chapter_rep',...EXEC_ROLES].includes(x));}
+function canManageTiersRole(r){return toRoleArr(r).some(x=>['hr',...EXEC_ROLES].includes(x));}
+function canRecordAdHoc(r){return toRoleArr(r).some(x=>['doo','chapter_rep',...EXEC_ROLES].includes(x));}
+function roleLabel(r){const m={doc:'DOC',doo:'DOO',dop:'DOP',president:'Pres',cef:'CEF',vp:'VP',sec:'Sec',tres:'Tres',cpo:'CPO',hr:'HR',mr:'MR',chapter_rep:'ChapRep',trial:'Trial'};return toRoleArr(r).map(x=>m[x]||x.toUpperCase()).join('/');}
 function getDirTrack(r){if(isExecRole(r)||['hr','mr','trial'].includes(r))return'All';return(CONFIG.DIRECTORS[r]||{}).track||'All';}
+// Combined title/track for a user who may hold multiple director roles (S.roles).
+function getRoleDisplayInfo(){
+    const roles=(S.roles&&S.roles.length)?S.roles:[S.role];
+    if(roles.length<=1){const r=roles[0];return CONFIG.DIRECTORS[r]||{title:roleLabel(r),track:getDirTrack(r)};}
+    const title=roles.map(r=>(CONFIG.DIRECTORS[r]||{}).title||roleLabel(r)).join(' & ');
+    const tracks=[...new Set(roles.map(getDirTrack))];
+    return{title,track:tracks.length===1?tracks[0]:'All'};
+}
 function isUpcomingEv(r){return!!(r&&r[6]);}
 function getDirRoleForName(name){const n=(name||'').toLowerCase();const d=(S.data.directors||[]).find(r=>(r[1]||'').trim().toLowerCase()===n);if(d)return(d[2]||'').trim().toLowerCase();if((S.data.chapters||[]).some(r=>(r[1]||'').trim().toLowerCase()===n))return'chapter_rep';return null;}
 
@@ -422,7 +434,7 @@ function startPolling() {
                     viewDashboard();
                 }
             } else if(S.role&&S.role!=='volunteer'){
-                const track=getDirTrack(S.role);
+                const track=getRoleDisplayInfo().track;
                 await loadDirectorData(track);
                 // Also refresh volunteer data for chapter_rep or directors in vol view
                 if(S.role==='chapter_rep'&&S.user?.name)await loadVolunteerData(S.user.name).catch(()=>{});
@@ -635,7 +647,7 @@ const SESSION_KEY='cc_portal_session';
 function saveSession() {
     try {
         localStorage.setItem(SESSION_KEY,JSON.stringify({
-            role:S.role,dirRole:S.dirRole,user:S.user,
+            role:S.role,roles:S.roles||null,dirRole:S.dirRole,dirRoles:S.dirRoles||null,user:S.user,
             volUser:S.volUser||null,chapData:S.chapData||null,
             authorizedChapters:S.authorizedChapters||[],
         }));
@@ -644,7 +656,9 @@ function saveSession() {
 
 async function restoreSession(sess) {
     S.role=sess.role;
+    S.roles=sess.roles||(sess.role?[sess.role]:null);
     S.dirRole=sess.dirRole||null;
+    S.dirRoles=sess.dirRoles||(sess.dirRole?[sess.dirRole]:null);
     S.user=sess.user;
     S.volUser=sess.volUser||null;
     S.chapData=sess.chapData||null;
@@ -656,6 +670,7 @@ async function restoreSession(sess) {
     } else {
         // Re-verify the director/rep is still listed in the sheet before restoring the session.
         // If removed from the sheet, downgrade to volunteer (if applicable) or show not-registered.
+        // Also re-reads their role(s) in case column C changed since they last signed in.
         const email=(S.user?.email||'').trim().toLowerCase();
         if(email){
             try{
@@ -663,12 +678,13 @@ async function restoreSession(sess) {
                     fetchSheet(CONFIG.DIRECTORS_SHEET||'Directors').catch(()=>[]),
                     fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
                 ]);
-                const stillDir=dirRows.slice(1).some(r=>(r[0]||'').trim().toLowerCase()===email);
+                const freshDirRow=dirRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
+                const stillDir=!!freshDirRow;
                 const stillChap=chapRows.slice(1).some(r=>(r[0]||'').trim().toLowerCase()===email);
                 if(!stillDir&&!stillChap){
                     try{localStorage.removeItem(SESSION_KEY);}catch(_){}
                     if(S.volUser){
-                        S.user=S.volUser;S.role='volunteer';S.dirRole=null;S.volUser=null;
+                        S.user=S.volUser;S.role='volunteer';S.roles=null;S.dirRole=null;S.dirRoles=null;S.volUser=null;
                         await loadVolunteerData(S.user.name);
                         launchPortal();
                     } else {
@@ -676,6 +692,15 @@ async function restoreSession(sess) {
                         showNotRegistered(email,'');
                     }
                     return;
+                }
+                if(freshDirRow&&S.dirRole){
+                    const freshRoles=parseRoleList(freshDirRow[2]);
+                    if(freshRoles.length){
+                        S.roles=freshRoles;S.dirRoles=freshRoles;
+                        S.role=freshRoles[0];S.dirRole=freshRoles[0];
+                        if(S.user)S.user.role=freshRoles[0];
+                        if(S._dirUser)S._dirUser.role=freshRoles[0];
+                    }
                 }
             }catch(_){
                 // Network error — fail open so users aren't locked out during outages
@@ -689,7 +714,7 @@ function logout() {
     try{localStorage.removeItem(SESSION_KEY);}catch(_){}
     if(_pollTimer){clearInterval(_pollTimer);_pollTimer=null;}
     // Reset state
-    S.role=null;S.dirRole=null;S.user=null;S.volUser=null;
+    S.role=null;S.roles=null;S.dirRole=null;S.dirRoles=null;S.user=null;S.volUser=null;
     S._dirUser=null;S.chapData=null;S.view=null;S.subTab=null;
     S.data={};S.lbCat='hours';S.lbPrevRanks={};
     document.getElementById('portal-shell').style.display='none';
@@ -772,11 +797,15 @@ async function handleGoogleSignIn(credentialResponse) {
 
         // Priority 1: Directors sheet
         if(dirRow){
-            const role=((dirRow[2]||'').trim().toLowerCase())||'doc';
+            const roles=parseRoleList(dirRow[2])||[];
+            if(!roles.length)roles.push('doc');
+            const role=roles[0];
             const dirName=(dirRow[1]||'').trim();
             S.role=role;
+            S.roles=roles;
             S.dirRole=role;
-            S.user={name:dirName,email,role,track:getDirTrack(role),avatar:payload.picture||''};
+            S.dirRoles=roles;
+            S.user={name:dirName,email,role,track:getRoleDisplayInfo().track,avatar:payload.picture||''};
             S._dirUser=S.user;
             S.volUser=volUser;
             // Check if this director is also authorized for any chapters (col L = index 11)
@@ -793,7 +822,9 @@ async function handleGoogleSignIn(credentialResponse) {
             const chapName=(chapRow[1]||'').trim();
             const chapSchool=(chapRow[2]||'').trim();
             S.role='chapter_rep';
+            S.roles=['chapter_rep'];
             S.dirRole='chapter_rep';
+            S.dirRoles=['chapter_rep'];
             S.chapData={name:chapName,school:chapSchool};
             S.user={name:chapName,email,role:'chapter_rep',track:'All',avatar:payload.picture||''};
             S._dirUser=S.user;
@@ -806,7 +837,9 @@ async function handleGoogleSignIn(credentialResponse) {
         if(!volUser){hideLoading();showNotRegistered(email,payload.picture);return;}
         S.user=volUser;
         S.role='volunteer';
+        S.roles=null;
         S.dirRole=null;
+        S.dirRoles=null;
         S.volUser=null;
         await loadVolunteerData(S.user.name);
         launchPortal();
@@ -878,7 +911,7 @@ function launchPortal() {
 async function launchDirectorPortal(role) {
     showLoading();
     try {
-        const track=getDirTrack(role);
+        const track=getRoleDisplayInfo().track;
         const loads=[loadDirectorData(track)];
         // For chapter_rep or directors who are also volunteers, load personal vol data too
         const volName=S.volUser?.name||(role==='chapter_rep'?S.chapData?.name:null);
@@ -1066,7 +1099,7 @@ function renderUserInfo() {
         <div class="sb-av">${avHTML(u.name||'?',u.avatar,34)}</div>
         <div style="min-width:0;flex:1;${isDir?'cursor:pointer':''}" ${isDir?`onclick="_setDirContext();navigate('overview')"`:''}  title="${isDir?'View director overview':''}">
             <div class="sb-name">${esc(u.name||'Director')}</div>
-            <div class="sb-meta">${u.track?`${track.icon||''} ${combinedTrackLabel(u)}`:(CONFIG.DIRECTORS[S.role]||CONFIG.DIRECTORS[S.dirRole]||{}).title||''}</div>
+            <div class="sb-meta">${(u.track&&u.track!=='All')?`${track.icon||''} ${combinedTrackLabel(u)}`:esc((isDir?getRoleDisplayInfo().title:'')||combinedTrackLabel(u)||'')}</div>
         </div>
         <button class="sb-logout-btn" title="Sign out" onclick="logout()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15">
@@ -1290,7 +1323,7 @@ function viewDashboard() {
             _seenDirRoles.add(role);
             const roleMeta=CONFIG.DIRECTORS[role]||{title:roleLabel(role),track:getDirTrack(role)};
             const names=(S.data.directors||[])
-                .filter(r=>(r[2]||'').trim().toLowerCase()===role && (r[3]||'').trim().toLowerCase()!=='trial')
+                .filter(r=>parseRoleList(r[2]).includes(role) && (r[3]||'').trim().toLowerCase()!=='trial')
                 .map(r=>(r[1]||'').trim()).filter(Boolean);
             if(names.length)_allDirEntries.push({roleMeta,trackCfg:CONFIG.TRACKS[t]||{},names});
         }
@@ -1401,7 +1434,7 @@ function viewDashboard() {
 
 function viewDirectorOverview() {
     const root=document.getElementById('view-root');
-    const roleInfo=CONFIG.DIRECTORS[S.role]||{title:roleLabel(S.role),track:getDirTrack(S.role)};
+    const roleInfo=getRoleDisplayInfo();
     const assignments=S.data.curriculum||[];
     const events=S.data.events||[];
     const upcomingEvents=S.data.upcomingEvents||[];
@@ -1946,13 +1979,14 @@ function renderLbList() {
 function viewDirectorPanel(activeTab) {
     const root=document.getElementById('view-root');
     const r=S.role;
-    const roleInfo=CONFIG.DIRECTORS[r]||{title:roleLabel(r),track:getDirTrack(r)};
+    const roles=(S.roles&&S.roles.length)?S.roles:[r];
+    const roleInfo=getRoleDisplayInfo();
 
     const tabs=[
-        ...(canPostEvent(r)?      [{id:'post-event',       label:'📅 Post Event'}]:[]),
-        ...(canPostAssignment(r)? [{id:'post-assignment',  label:'📋 Post Assignment'}]:[]),
-        ...(canGiveHoursAssign(r)?[{id:'give-hours',       label:'✅ Give Hours'}]:[]),
-        ...(canGiveHoursEvent(r)? [{id:'give-event-hours', label:'🎓 Give Event Hours'}]:[]),
+        ...(canPostEvent(roles)?      [{id:'post-event',       label:'📅 Post Event'}]:[]),
+        ...(canPostAssignment(roles)? [{id:'post-assignment',  label:'📋 Post Assignment'}]:[]),
+        ...(canGiveHoursAssign(roles)?[{id:'give-hours',       label:'✅ Give Hours'}]:[]),
+        ...(canGiveHoursEvent(roles)? [{id:'give-event-hours', label:'🎓 Give Event Hours'}]:[]),
         {id:'roster', label:'👥 Roster'},
     ];
 
@@ -1977,7 +2011,7 @@ function viewDirectorPanel(activeTab) {
     document.getElementById('dir-refresh-btn').onclick=async()=>{
         const btn=document.getElementById('dir-refresh-btn');
         btn.disabled=true;btn.innerHTML='<span class="spinner"></span>';
-        await loadDirectorData(getDirTrack(r)).catch(()=>{});
+        await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
         viewDirectorPanel(activeTab);
     };
     root.querySelectorAll('#dir-tabs .panel-tab').forEach(tab=>{
@@ -2158,7 +2192,7 @@ function attachPostAssignEvents() {
             });
             toast(`"${name}" posted!`,'success');
             ['pa-name','pa-slides','pa-due','pa-start','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
-            const track=getDirTrack(S.role);
+            const track=getRoleDisplayInfo().track;
             await loadDirectorData(track).catch(()=>{});
             viewDirectorPanel('post-assignment');
         } catch(e){err.textContent=e.message;}
@@ -2181,7 +2215,7 @@ function attachPostAssignEvents() {
             try {
                 await postAction('edit_curriculum',{assignmentName:name,fields:{startDate:localYesterday()}});
                 toast(`Registration closed — "${name}" has started.`,'success');
-                const track=getDirTrack(S.role);
+                const track=getRoleDisplayInfo().track;
                 await loadDirectorData(track).catch(()=>{});
                 viewDirectorPanel('post-assignment');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='▶ Start Now';}
@@ -2196,7 +2230,7 @@ function attachPostAssignEvents() {
             try {
                 await postAction('edit_curriculum',{assignmentName:name,fields:{startDate:localYesterday(),dueDate:localYesterday()}});
                 toast(`"${name}" marked as completed.`,'success');
-                const track=getDirTrack(S.role);
+                const track=getRoleDisplayInfo().track;
                 await loadDirectorData(track).catch(()=>{});
                 viewDirectorPanel('post-assignment');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✓ Finish Early';}
@@ -2288,7 +2322,7 @@ function showEditAssignment(r) {
             await postAction('edit_curriculum',{assignmentName:name,fields:{slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel}});
             toast(`"${name}" updated!`,'success');
             close();
-            const track=getDirTrack(S.role);
+            const track=getRoleDisplayInfo().track;
             await loadDirectorData(track).catch(()=>{});
             viewDirectorPanel('post-assignment');
         } catch(e){err.textContent=e.message;btn.disabled=false;btn.textContent='Save Changes';}
@@ -2364,7 +2398,7 @@ function attachGiveHoursEvents() {
             try {
                 await postAction('give_hours',{assignmentName,attendees:attendeesStr,givenBy:S.user?.name||'Director',givenDate:new Date().toISOString()});
                 toast('Hours given! Leaderboard updates shortly.','success');
-                await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+                await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
                 viewDirectorPanel('give-hours');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✅ Give Hours';}
         };
@@ -2444,7 +2478,7 @@ function attachRecordEventEvents() {
             document.getElementById('re-attendees').value='';
             document.getElementById('re-assembly').checked=false;
             S.data.lbReady=false; // force lb refresh
-            const track=getDirTrack(S.role);
+            const track=getRoleDisplayInfo().track;
             await loadDirectorData(track).catch(()=>{});
             viewDirectorPanel('record-event');
         } catch(e){err.textContent=e.message;btn.disabled=false;btn.textContent='🎓 Record Event';}
@@ -3162,7 +3196,7 @@ function attachPostEventEvents() {
             document.getElementById('pe-ymca').checked=false;
             // Restore chapter label for chapter_rep
             if(S.role==='chapter_rep')document.getElementById('pe-chapter').value=S.chapData?.school||'';
-            await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+            await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
             viewDirectorPanel('post-event');
         } catch(e){err.textContent=e.message;}
         btn.disabled=false;btn.textContent='📅 Post Event';
@@ -3184,7 +3218,7 @@ function attachPostEventEvents() {
             try {
                 await postAction('edit_event',{eventName:name,fields:{signupCloseDate:localYesterday()}});
                 toast(`Registration closed — "${name}" has started.`,'success');
-                await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+                await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
                 viewDirectorPanel('post-event');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='▶ Start Now';}
         };
@@ -3198,7 +3232,7 @@ function attachPostEventEvents() {
             try {
                 await postAction('edit_event',{eventName:name,fields:{eventDate:localYesterday(),signupCloseDate:localYesterday()}});
                 toast(`"${name}" marked as completed.`,'success');
-                await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+                await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
                 viewDirectorPanel('post-event');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✓ Finish Early';}
         };
@@ -3286,7 +3320,7 @@ function showEditEvent(r) {
             await postAction('edit_event',{eventName:name,fields:{eventDate,signupCloseDate,hours,maxVolunteers,chapterLabel,instructions,cardColor,cardDeco,cardLabel,requiresYMCA}});
             toast(`"${name}" updated!`,'success');
             close();
-            await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+            await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
             viewDirectorPanel('post-event');
         } catch(e){err.textContent=e.message;btn.disabled=false;btn.textContent='Save Changes';}
     });
@@ -3366,7 +3400,7 @@ function attachGiveEventHoursEvents() {
                 await postAction('give_event_hours',{eventName,attendees:attendeesStr,givenBy:S.user?.name||'Director',givenDate:new Date().toISOString()});
                 toast('Event hours given!','success');
                 S.data.lbReady=false;
-                await loadDirectorData(getDirTrack(S.role)).catch(()=>{});
+                await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
                 viewDirectorPanel('give-event-hours');
             } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='🎓 Give Event Hours';}
         };
@@ -3473,7 +3507,7 @@ async function switchToDirectorView() {
     S.role=S.dirRole;
     showLoading();
     try {
-        await loadDirectorData(getDirTrack(S.role));
+        await loadDirectorData(getRoleDisplayInfo().track);
         hideLoading();
         renderSidebar();
         renderUserInfo();
@@ -3575,7 +3609,7 @@ async function refreshDashboard(){
         if(S.role==='volunteer'){
             await loadVolunteerData(S.user.name);
         } else {
-            await loadDirectorData(getDirTrack(S.role));
+            await loadDirectorData(getRoleDisplayInfo().track);
         }
         hideLoading();
         renderSidebar();
