@@ -356,6 +356,17 @@ function isClosed(startDate,dueDate,triggeredAt) {
 /* Curriculum row helpers for the duration-based deadline mode (col N=r[13]/O=r[14]) */
 function curriculumDurationDays(r) { return parseFloat(r[13])||0; }
 function isDurationTriggered(r) { return !!(r[14]||'').toString().trim(); }
+/* Sort curriculum/event rows by their PostedAt timestamp (col P=r[15]), newest first.
+   Raw sheet row order isn't a reliable recency proxy — sheets get manually re-sorted —
+   so posting time is stamped explicitly at creation. Rows without a timestamp (posted
+   before this column existed) fall back to their relative row order so old data doesn't
+   jump around; any row with a real timestamp always sorts above those legacy rows. */
+function sortByPostedAt(rows) {
+    return rows
+        .map((r,i)=>({r,i,t:Date.parse(r[15]||'')||0}))
+        .sort((a,b)=> b.t!==a.t ? b.t-a.t : b.i-a.i)
+        .map(x=>x.r);
+}
 /* Completed = past due date */
 function isCompleted(dueDate) {
     if(!dueDate)return false;
@@ -550,17 +561,17 @@ async function loadVolunteerData(name) {
     S.data.ymcaFormURL=resolvedYmca;
     if(S.user)S.user.ymcaFormURL=resolvedYmca; // always sync, even if empty
 
-    S.data.myRegistrations=S.data.curriculum.filter(r=>{
+    S.data.myRegistrations=sortByPostedAt(S.data.curriculum.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
         return reg.includes(lower)&&!cred.includes(lower);
-    }).reverse(); // newest first
+    })); // newest posted first
     // upcoming event registrations (registered but not yet credited)
-    S.data.myEventRegistrations=S.data.upcomingEvents.filter(r=>{
+    S.data.myEventRegistrations=sortByPostedAt(S.data.upcomingEvents.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
         return reg.includes(lower)&&!cred.includes(lower);
-    }).reverse(); // newest first
+    })); // newest posted first
 }
 
 async function loadDirectorData(track) {
@@ -1442,7 +1453,7 @@ function viewDirectorOverview() {
     const events=S.data.events||[];
     const upcomingEvents=S.data.upcomingEvents||[];
     const vols=S.data.volunteers||[];
-    const openAssignments=[...assignments].reverse().filter(r=>!isLocked(r[5],r[14])); // newest first
+    const openAssignments=sortByPostedAt(assignments).filter(r=>!isLocked(r[5],r[14])); // newest posted first
     root.innerHTML=`
         <div class="view-header">
             <div>
@@ -1528,7 +1539,7 @@ function viewCurriculum() {
 function renderCurrList(filter) {
     const listEl=document.getElementById('curr-list');
     if(!listEl)return;
-    const assignments=[...(S.data.curriculum||[])].reverse(); // newest first
+    const assignments=sortByPostedAt(S.data.curriculum||[]); // newest posted first
     const lower=(S.user?.name||'').toLowerCase();
     let filtered=assignments;
     // "available" = everything not yet completed (open + locked), locked appear dimmed
@@ -2102,7 +2113,7 @@ function dirPostAssignHTML() {
     const isChapScoped=isChapterScopedDirector();
     const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
     const existing=dirChapterFilterItems(S.data.curriculum||[],'curr');
-    const existingCards=existing.slice().reverse().map(r=>{
+    const existingCards=sortByPostedAt(existing).map(r=>{
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
         const maxVols=parseInt(r[6])||0;
         const done=isCompleted(r[1]);
@@ -2429,7 +2440,7 @@ function showEditAssignment(r) {
 /* ─── GIVE HOURS (DOC) ──────────────────────────────────────── */
 function dirGiveHoursHTML() {
     const rawAssignments=dirChapterFilterItems(S.data.curriculum||[],'curr');
-    const assignments=[...rawAssignments].reverse(); // newest first
+    const assignments=sortByPostedAt(rawAssignments); // newest posted first
     if(!assignments.length)return mascotEmpty('No assignments yet','Post assignments first, then give hours after volunteers complete the work.');
     const allVols=S.data.allVolunteers||[];
     const discordMap={};
@@ -2504,7 +2515,7 @@ function attachGiveHoursEvents() {
 
 /* ─── RECORD EVENT (DOO) ────────────────────────────────────── */
 function dirRecordEventHTML() {
-    const events=(S.data.events||[]).slice().reverse().slice(0,10);
+    const events=sortByPostedAt(S.data.events||[]).slice(0,10);
     return `
         <div style="display:grid;grid-template-columns:1fr 1.1fr;gap:20px;align-items:start">
             <div class="card">
@@ -2759,8 +2770,8 @@ function renderActivitiesList(filter) {
     const currCol=document.getElementById('act-col-curriculum');
     if(!evCol||!currCol)return;
 
-    const assignments=[...(S.data.curriculum||[])].reverse();
-    const upcomingEvs=[...(S.data.upcomingEvents||[])].reverse();
+    const assignments=sortByPostedAt(S.data.curriculum||[]);
+    const upcomingEvs=sortByPostedAt(S.data.upcomingEvents||[]);
     const lower=(S.user?.name||'').toLowerCase();
 
     let filteredAssign=assignments;
@@ -3155,7 +3166,7 @@ function attachActivitiesEvents() {
 function dirPostEventHTML() {
     const isChapScoped=isChapterScopedDirector();
     const rawExisting=isChapScoped?dirChapterFilterItems(S.data.upcomingEvents||[],'event'):S.data.upcomingEvents||[];
-    const existing=rawExisting.slice().reverse();
+    const existing=sortByPostedAt(rawExisting);
     const isChapRep=S.role==='chapter_rep';
     const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
 
@@ -3428,7 +3439,7 @@ function showEditEvent(r) {
    ═══════════════════════════════════════════════════════════════ */
 function dirGiveEventHoursHTML() {
     const rawEvents=dirChapterFilterItems(S.data.upcomingEvents||[],'event');
-    const events=rawEvents.slice().reverse();
+    const events=sortByPostedAt(rawEvents);
     if(!events.length)return mascotEmpty('No upcoming events yet','Post upcoming events first, then give hours after they happen.');
     const allVols=S.data.allVolunteers||[];
     const discordMap={};
@@ -3533,7 +3544,7 @@ function viewMyChapter() {
     const chapSchool=(chapEntry[2]||'').trim();
 
     // Chapter-local upcoming events
-    const chapEvents=[...(S.data.upcomingEvents||[])].reverse().filter(r=>(r[10]||'').trim().toLowerCase()===userSchool); // newest first
+    const chapEvents=sortByPostedAt(S.data.upcomingEvents||[]).filter(r=>(r[10]||'').trim().toLowerCase()===userSchool); // newest posted first
 
     // Chapter members (volunteers with same school)
     const chapMembers=(S.data.allVolunteers||[]).filter(v=>(v.school||'').trim().toLowerCase()===userSchool);

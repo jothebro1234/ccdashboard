@@ -14,16 +14,18 @@
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
  *   O=YMCAFormURL
  *
- * CURRICULUM SHEET columns (A–O):
+ * CURRICULUM SHEET columns (A–P):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
  *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel  M=ChapterLabel
  *   N=DurationDays(working-period mode)  O=TriggeredAt(when the duration countdown started)
+ *   P=PostedAt(creation timestamp — used to sort lists by posted recency)
  *
- * EVENTS SHEET columns (A–O):
+ * EVENTS SHEET columns (A–P):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
  *   G=MaxVolunteers  H=RegisteredList  I=SignupCloseDate  J=Instructions  K=ChapterLabel
  *   L=CardColor  M=CardDeco  N=CardLabel  O=RequiresYMCA
+ *   P=PostedAt(creation timestamp — used to sort lists by posted recency)
  *
  * CHAPTERS SHEET columns (A–L):
  *   A=Email  B=Name  C=School  D=Logo  E=State  F=City
@@ -56,8 +58,8 @@ function getSheet(name) {
 
 function initSheetHeaders(sh, name) {
     const headers = {
-        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt'],
-        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'],
+        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt'],
+        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt'],
         Chapters:   ['Email','Name','School','Logo','State','City','PresidentPhoto','VicePresident','Treasurer','Secretary','SocialMedia','AuthorizedDirectors'],
         Directors:  ['Email','Name','Role'],
     };
@@ -81,7 +83,7 @@ function findOrAddColumn(sh, headerName) {
 /* Fills in any missing header cells for sheets that existed before new columns were added */
 function ensureMissingHeaders(sh, name) {
     if (name === 'Events') {
-        const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'];
+        const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
         expected.forEach(function(col, i) {
@@ -90,7 +92,7 @@ function ensureMissingHeaders(sh, name) {
             }
         });
     } else if (name === 'Curriculum') {
-        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt'];
+        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
         expected.forEach(function(col, i) {
@@ -272,6 +274,7 @@ function createCurriculum(b) {
         b.chapterLabel         || '',
         b.durationDays         || '',
         '',   // TriggeredAt — set by registerCurriculum (auto-fill) or startCurriculum (manual)
+        new Date(),   // PostedAt — used to sort lists by posted recency
     ]);
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
@@ -457,6 +460,7 @@ function createEvent(b) {
         b.cardDeco        || '',
         b.cardLabel       || '',
         b.requiresYMCA    || 'FALSE',
+        new Date(),   // PostedAt — used to sort lists by posted recency
     ]);
     return 'Event created: ' + b.eventName;
 }
