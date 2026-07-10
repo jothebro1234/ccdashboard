@@ -338,21 +338,24 @@ function formatCountdown(startDate) {
     if(m>0)return`${m}m ${s}s left`;
     return`${s}s left`;
 }
-/* Lock date is the LAST DAY registration is open; locked from the next day onwards */
-function isLocked(startDate) {
+/* Lock date is the LAST DAY registration is open; locked from the next day onwards.
+   Also locked immediately once a duration-based assignment has been triggered/started. */
+function isLocked(startDate,triggeredAt) {
+    if(triggeredAt)return true;
     if(!startDate)return false;
     const sd=toDateStr(startDate);
     return sd!==''&&sd<localToday();
 }
-/* Closed if lock date has passed OR due date has passed */
-function isClosed(startDate,dueDate) {
-    const today=localToday();
-    const sd=toDateStr(startDate);
+/* Closed if lock date has passed, the assignment has started, or due date has passed */
+function isClosed(startDate,dueDate,triggeredAt) {
+    if(isLocked(startDate,triggeredAt))return true;
     const dd=toDateStr(dueDate);
-    if(sd&&sd<today)return true;
-    if(dd&&dd<today)return true;
+    if(dd&&dd<localToday())return true;
     return false;
 }
+/* Curriculum row helpers for the duration-based deadline mode (col N=r[13]/O=r[14]) */
+function curriculumDurationDays(r) { return parseFloat(r[13])||0; }
+function isDurationTriggered(r) { return !!(r[14]||'').toString().trim(); }
 /* Completed = past due date */
 function isCompleted(dueDate) {
     if(!dueDate)return false;
@@ -551,13 +554,13 @@ async function loadVolunteerData(name) {
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
         return reg.includes(lower)&&!cred.includes(lower);
-    });
+    }).reverse(); // newest first
     // upcoming event registrations (registered but not yet credited)
     S.data.myEventRegistrations=S.data.upcomingEvents.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
         const cred=(r[3]||'').split(',').map(n=>n.trim().toLowerCase());
         return reg.includes(lower)&&!cred.includes(lower);
-    });
+    }).reverse(); // newest first
 }
 
 async function loadDirectorData(track) {
@@ -1292,7 +1295,7 @@ function viewDashboard() {
     }).join('');
 
     const currRegCards=currRegs.map(r=>{
-        const locked=isClosed(r[5],r[1]);
+        const locked=isClosed(r[5],r[1],r[14]);
         const done=isCompleted(r[1]);
         const maxVols=parseInt(r[6])||0;
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
@@ -1305,11 +1308,11 @@ function viewDashboard() {
             <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
                     ${dap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Assignment')}</div>${dap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Assignment')}</div>`}
-                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(r[1])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
+                    <div class="curr-meta" style="margin-top:6px">${currMetaDateHTML(r)}<span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
                     ${!locked&&startDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Closes ${fmtDateTimeStr(startDate)}</div>`:''}
                     ${done?`<div class="curr-waiting">⏳ Waiting for director to confirm hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots filled</div>`}
                 </div>
-                <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':locked?'<span class="curr-lock-badge">🔒 Locked</span>':`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`}</div>
+                <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':locked?currLockBadgeHTML(r):`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`}</div>
             </div>
         </div>`;
     }).join('');
@@ -1439,7 +1442,7 @@ function viewDirectorOverview() {
     const events=S.data.events||[];
     const upcomingEvents=S.data.upcomingEvents||[];
     const vols=S.data.volunteers||[];
-    const openAssignments=assignments.filter(r=>!isLocked(r[5]));
+    const openAssignments=[...assignments].reverse().filter(r=>!isLocked(r[5],r[14])); // newest first
     root.innerHTML=`
         <div class="view-header">
             <div>
@@ -1469,7 +1472,8 @@ function viewDirectorOverview() {
                     const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
                     const maxVols=parseInt(r[6])||0;
                     const oa=cardAppearance(r);
-                    return `<div class="curr-card ${oa.cls}"${oa.style?` style="${oa.style}"`:''}>${oa.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'')}</div>${oa.badge}</div>`:`<div class="curr-title">${esc(r[0]||'')}</div>`}<div class="curr-meta">Due ${fmtDate(r[1])} · ${filled}/${maxVols} slots · ${esc(formatCountdown(r[5]))}</div></div>`;
+                    const cd=formatCountdown(r[5]);
+                    return `<div class="curr-card ${oa.cls}"${oa.style?` style="${oa.style}"`:''}>${oa.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'')}</div>${oa.badge}</div>`:`<div class="curr-title">${esc(r[0]||'')}</div>`}<div class="curr-meta">${currMetaDateText(r)} · ${filled}/${maxVols} slots${cd?` · ${esc(cd)}`:''}</div></div>`;
                 }).join('')||'<div class="muted text-small">No open assignments.</div>'}
             </div>
             <div>
@@ -1494,7 +1498,7 @@ function viewCurriculum() {
         <div class="view-header">
             <div>
                 <div class="view-title">Available Assignments 📚</div>
-                <div class="view-subtitle">${assignments.length} total · ${assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1])).length} open now</div>
+                <div class="view-subtitle">${assignments.length} total · ${assignments.filter(r=>!isClosed(r[5],r[1],r[14])&&!isCompleted(r[1])).length} open now</div>
             </div>
             <button class="btn btn-ghost btn-sm" id="curr-refresh-btn">↺ Refresh</button>
         </div>
@@ -1558,6 +1562,26 @@ function renderCurrList(filter) {
     startCountdownTimers();
 }
 
+/* Due-date meta text: shows the working-period countdown for duration-mode assignments
+   that haven't started yet, since their DueDate cell is blank until triggered. */
+function currMetaDateHTML(r) {
+    const dur=curriculumDurationDays(r),started=isDurationTriggered(r);
+    if(dur>0&&!started)return`<span class="curr-meta-date">🕒 ${dur}-day deadline · starts once full or manually started</span>`;
+    if(dur>0&&started)return`<span class="curr-meta-date">🚀 Started ${fmtDateTimeStr(r[14])} · Due ${fmtDateTimeStr(r[1])}</span>`;
+    return`<span class="curr-meta-date">📅 Due ${fmtDateTimeStr(r[1])}</span>`;
+}
+function currMetaDateText(r) {
+    if(curriculumDurationDays(r)>0&&!isDurationTriggered(r))return`🕒 ${curriculumDurationDays(r)}-day deadline · not started`;
+    return`Due ${fmtDateTimeStr(r[1])}`;
+}
+/* Badge for the "registration closed" state — distinguishes an in-progress duration
+   assignment (already started, deadline ticking) from a plain past-lock-date closure. */
+function currLockBadgeHTML(r,extraStyle='') {
+    const styleAttr=extraStyle?` style="${extraStyle}"`:'';
+    return isDurationTriggered(r)
+        ?`<span class="curr-progress-badge"${styleAttr}>🚀 In Progress</span>`
+        :`<span class="curr-lock-badge"${styleAttr}>🔒 Locked</span>`;
+}
 function currSimpleRowHTML(r,notEligible=false) {
     const name=r[0]||'Untitled';
     const hours=r[2]||'0';
@@ -1565,19 +1589,19 @@ function currSimpleRowHTML(r,notEligible=false) {
     const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const done=isCompleted(r[1]);
-    const locked=isClosed(r[5],r[1]);
+    const locked=isClosed(r[5],r[1],r[14]);
     const count=credited.length||regList.length;
     let badge='';
     if(notEligible)badge='<span class="chap-only-badge" style="font-size:10px;padding:2px 8px">🏫 Chapter only</span>';
     else if(done)badge='<span class="curr-done-badge" style="font-size:10px;padding:2px 8px">Done</span>';
-    else if(locked)badge='<span class="curr-lock-badge" style="font-size:10px;padding:2px 8px">Locked</span>';
+    else if(locked)badge=currLockBadgeHTML(r,'font-size:10px;padding:2px 8px');
     else badge='<span class="curr-open-badge" style="font-size:10px;padding:2px 8px">Open</span>';
     const ap=cardAppearance(r);
     return `<div class="curr-simple-row ${done?'done':''} ${notEligible?'chap-only-other':''}" data-name="${esc(name)}" style="cursor:pointer">
         <span class="curr-simple-icon">${notEligible?'🏫':done?'✅':locked?'🔒':'📋'}</span>
         <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="curr-simple-name">${esc(name)}</span>${ap.badge}${chapterLabel&&!notEligible?`<span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
-            <div class="curr-simple-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
+            <div class="curr-simple-meta">${currMetaDateText(r)} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
         </div>
         <span class="curr-simple-badge">${badge}</span>
     </div>`;
@@ -1591,7 +1615,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
     const startDate=r[5]||'';
     const maxVols=parseInt(r[6])||0;
     const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
-    const locked=isClosed(startDate,r[1]);
+    const locked=isClosed(startDate,r[1],r[14]);
     const done=isCompleted(r[1]);
     const isCredited=credited.some(n=>n.toLowerCase()===lowerName);
     const isRegistered=regList.some(n=>n.toLowerCase()===lowerName);
@@ -1604,7 +1628,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
     else if(isRegistered)statusBadge='<span class="curr-reg-badge">✋ Registered</span>';
     const lockBadge=done
         ?'<span class="curr-done-badge">✅ Completed</span>'
-        :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
+        :locked?currLockBadgeHTML(r)
         :`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`;
 
     const signupCloseHTML=!done&&!locked&&startDate
@@ -1644,7 +1668,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
                         <div class="curr-title" style="margin-bottom:0">${esc(name)}</div>
                         <span class="chap-only-badge">🏫 ${esc(chapterLabel)}</span>
                     </div>
-                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(r[1])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
+                    <div class="curr-meta" style="margin-top:6px">${currMetaDateHTML(r)}<span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 </div>
                 <div style="flex-shrink:0"><span class="curr-lock-badge">🏫 Chapter only</span></div>
             </div>
@@ -1683,7 +1707,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
                     <div class="curr-title" style="margin-bottom:0">${esc(name)}</div>
                     ${chapBadge}${ap.badge}
                 </div>
-                <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(r[1])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
+                <div class="curr-meta" style="margin-top:6px">${currMetaDateHTML(r)}<span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
                 ${signupCloseHTML}
             </div>
@@ -1741,13 +1765,14 @@ function showAssignmentDetail(r) {
     const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
     const instructions=r[8]||'';
     const done=isCompleted(r[1]);
-    const locked=isClosed(startDate,r[1]);
+    const locked=isClosed(startDate,r[1],r[14]);
     const lockDateStr=startDate?fmtDateTimeStr(startDate):'';
-    const dueDateStr=fmtDateTimeStr(r[1]);
+    const dur=curriculumDurationDays(r),started=isDurationTriggered(r);
+    const dueChipStr=(dur>0&&!started)?`🕒 ${dur}-day deadline (not started)`:`📅 Due ${fmtDateTimeStr(r[1])}`;
 
     let stateBadge='';
     if(done)stateBadge='<span class="curr-done-badge">✅ Completed</span>';
-    else if(locked)stateBadge='<span class="curr-lock-badge">🔒 Registration closed</span>';
+    else if(locked)stateBadge=started?'<span class="curr-progress-badge">🚀 In Progress</span>':'<span class="curr-lock-badge">🔒 Registration closed</span>';
 
     const cardLabel=(r[11]||'').trim();
     const ap=cardAppearance(r);
@@ -1758,7 +1783,7 @@ function showAssignmentDetail(r) {
         </div>
         <div class="modal-body">
             <div class="modal-chips">
-                <span class="modal-chip">📅 Due ${dueDateStr}</span>
+                <span class="modal-chip">${dueChipStr}</span>
                 <span class="modal-chip">⏱ ${esc(hours)}h credit</span>
                 <span class="modal-chip">👥 ${regList.length}/${maxVols||'?'} slots</span>
                 ${stateBadge}
@@ -2081,23 +2106,27 @@ function dirPostAssignHTML() {
         const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
         const maxVols=parseInt(r[6])||0;
         const done=isCompleted(r[1]);
-        const locked=isClosed(r[5],r[1]);
+        const locked=isClosed(r[5],r[1],r[14]);
+        const dur=curriculumDurationDays(r),started=isDurationTriggered(r);
+        const durationMode=dur>0&&!started;
         const statusBadge=done
             ?'<span class="curr-done-badge">✅ Completed</span>'
-            :locked?'<span class="curr-lock-badge">🔒 Locked</span>'
+            :locked?currLockBadgeHTML(r)
+            :durationMode?`<span class="curr-open-badge">Open · not started</span>`
             :`<span class="curr-open-badge">Open · ${esc(formatCountdown(r[5]))}</span>`;
         const da=cardAppearance(r);
         return `<div class="curr-card ${da.cls}"${da.style?` style="${da.style}"`:''}">
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
                     ${da.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'')}</div>${da.badge}</div>`:`<div class="curr-title">${esc(r[0]||'')}</div>`}
-                    <div class="curr-meta">Due ${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
+                    <div class="curr-meta">${currMetaDateText(r)} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
                 </div>
                 <div style="flex-shrink:0">${statusBadge}</div>
             </div>
             <div class="curr-actions mt-10" style="flex-wrap:wrap;gap:7px">
                 <button class="btn btn-ghost btn-sm dir-edit-btn" data-name="${esc(r[0]||'')}">✏️ Edit</button>
-                ${!locked?`<button class="btn btn-ghost btn-sm dir-startnow-btn" data-name="${esc(r[0]||'')}">▶ Start Now</button>`:''}
+                ${durationMode?`<button class="btn btn-primary btn-sm dir-startassign-btn" data-name="${esc(r[0]||'')}">🚀 Start Assignment</button>`:''}
+                ${!locked&&!durationMode?`<button class="btn btn-ghost btn-sm dir-startnow-btn" data-name="${esc(r[0]||'')}">▶ Start Now</button>`:''}
                 ${!done?`<button class="btn btn-ghost btn-sm dir-finishearly-btn" data-name="${esc(r[0]||'')}">✓ Finish Early</button>`:''}
             </div>
         </div>`;
@@ -2116,7 +2145,21 @@ function dirPostAssignHTML() {
                         <label class="form-label">Slides Link</label>
                         <input class="form-input" id="pa-slides" placeholder="https://docs.google.com/presentation/…">
                     </div>
-                    <div class="form-grid form-grid-2">
+                    <div class="form-group">
+                        <label class="form-label">Deadline Type</label>
+                        <div style="display:flex;gap:16px;align-items:center">
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600">
+                                <input type="radio" name="pa-mode" id="pa-mode-fixed" value="fixed" checked style="width:15px;height:15px;accent-color:var(--blue)">
+                                Fixed due date
+                            </label>
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;font-weight:600">
+                                <input type="radio" name="pa-mode" id="pa-mode-duration" value="duration" style="width:15px;height:15px;accent-color:var(--blue)">
+                                Working-period duration
+                            </label>
+                        </div>
+                        <div class="form-hint">Duration mode: the deadline starts counting once every spot is filled, or you manually start it — not at posting time.</div>
+                    </div>
+                    <div class="form-grid form-grid-2" id="pa-due-row">
                         <div class="form-group">
                             <label class="form-label">Due Date &amp; Time *</label>
                             <input class="form-input" type="datetime-local" id="pa-due">
@@ -2125,6 +2168,18 @@ function dirPostAssignHTML() {
                             <label class="form-label">Registration Lock Date &amp; Time *</label>
                             <input class="form-input" type="datetime-local" id="pa-start">
                             <div class="form-hint">After this, no new sign-ups</div>
+                        </div>
+                    </div>
+                    <div class="form-grid form-grid-2" id="pa-duration-row" style="display:none">
+                        <div class="form-group">
+                            <label class="form-label">Working Period (days) *</label>
+                            <input class="form-input" type="number" id="pa-duration" placeholder="7" min="1" step="1">
+                            <div class="form-hint">Deadline = start time + this many days</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Registration Lock Date &amp; Time <span style="font-size:11px;color:var(--textm);font-weight:600">(optional)</span></label>
+                            <input class="form-input" type="datetime-local" id="pa-start-dur">
+                            <div class="form-hint">Optional hard cutoff for sign-ups</div>
                         </div>
                     </div>
                     <div class="form-grid form-grid-2">
@@ -2167,11 +2222,23 @@ function attachPostAssignEvents() {
     const isChapScoped=isChapterScopedDirector();
     const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
     initChapCombo('pa-chapter',chapSchool,isChapScoped);
+
+    const dueRow=document.getElementById('pa-due-row');
+    const durRow=document.getElementById('pa-duration-row');
+    const syncMode=()=>{
+        const duration=document.getElementById('pa-mode-duration').checked;
+        dueRow.style.display=duration?'none':'';
+        durRow.style.display=duration?'':'none';
+    };
+    document.querySelectorAll('input[name="pa-mode"]').forEach(r=>r.addEventListener('change',syncMode));
+
     document.getElementById('pa-submit-btn').onclick=async()=>{
         const name=document.getElementById('pa-name').value.trim();
         const slides=document.getElementById('pa-slides').value.trim();
+        const durationMode=document.getElementById('pa-mode-duration').checked;
         const due=document.getElementById('pa-due').value;
-        const start=document.getElementById('pa-start').value;
+        const start=durationMode?document.getElementById('pa-start-dur').value:document.getElementById('pa-start').value;
+        const durationDays=document.getElementById('pa-duration').value;
         const hours=document.getElementById('pa-hours').value;
         const max=document.getElementById('pa-max').value;
         const instructions=document.getElementById('pa-instructions').value;
@@ -2180,18 +2247,25 @@ function attachPostAssignEvents() {
         const cardLabel=document.getElementById('pa-label').value.trim();
         const chapterLabel=document.getElementById('pa-chapter').value.trim();
         const err=document.getElementById('pa-err');
-        if(!name||!due||!start||!hours||!max||!instructions){err.textContent='All fields including instructions are required.';return;}
+        if(!name||!hours||!max||!instructions){err.textContent='All fields including instructions are required.';return;}
+        if(!durationMode&&(!due||!start)){err.textContent='Due date and registration lock date are required.';return;}
+        if(durationMode&&!(parseFloat(durationDays)>0)){err.textContent='Working period (days) is required.';return;}
         err.textContent='';
         const btn=document.getElementById('pa-submit-btn');
         btn.disabled=true;btn.textContent='Posting…';
         try {
             await postAction('create_curriculum',{
-                assignmentName:name,dueDate:due,hours,contributors:'',
+                assignmentName:name,
+                dueDate:durationMode?'':due,
+                durationDays:durationMode?durationDays:'',
+                hours,contributors:'',
                 slidesLink:slides,startDate:start,maxVolunteers:max,
                 registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,chapterLabel,
             });
             toast(`"${name}" posted!`,'success');
-            ['pa-name','pa-slides','pa-due','pa-start','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
+            ['pa-name','pa-slides','pa-due','pa-start','pa-start-dur','pa-duration','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
+            document.getElementById('pa-mode-fixed').checked=true;
+            syncMode();
             const track=getRoleDisplayInfo().track;
             await loadDirectorData(track).catch(()=>{});
             viewDirectorPanel('post-assignment');
@@ -2204,6 +2278,21 @@ function attachPostAssignEvents() {
             const name=btn.dataset.name;
             const r=(S.data.curriculum||[]).find(row=>(row[0]||'').trim()===name.trim());
             if(r)showEditAssignment(r);
+        };
+    });
+
+    document.querySelectorAll('.dir-startassign-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const name=btn.dataset.name;
+            if(!confirm(`Start "${name}" now?\n\nThis locks registration immediately and sets the deadline based on the assignment's working period.`))return;
+            btn.disabled=true;btn.textContent='Starting…';
+            try {
+                await postAction('start_curriculum',{assignmentName:name});
+                toast(`"${name}" started! Deadline is now set.`,'success');
+                const track=getRoleDisplayInfo().track;
+                await loadDirectorData(track).catch(()=>{});
+                viewDirectorPanel('post-assignment');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='🚀 Start Assignment';}
         };
     });
 
@@ -2263,13 +2352,18 @@ function showEditAssignment(r) {
                 </div>
                 <div class="form-grid form-grid-2">
                     <div class="form-group">
-                        <label class="form-label">Due Date &amp; Time</label>
+                        <label class="form-label">Due Date &amp; Time${isDurationTriggered(r)?'':' <span style="font-size:11px;color:var(--textm);font-weight:600">(ignored if duration below is set)</span>'}</label>
                         <input class="form-input" type="datetime-local" id="ed-due" value="${esc(toDateTimeLocal(r[1]))}">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Registration Lock Date &amp; Time</label>
                         <input class="form-input" type="datetime-local" id="ed-start" value="${esc(toDateTimeLocal(r[5]))}">
                     </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Working Period (days) <span style="font-size:11px;color:var(--textm);font-weight:600">(duration mode — optional)</span></label>
+                    <input class="form-input" type="number" id="ed-duration" value="${esc(r[13]||'')}" min="1" step="1"${isDurationTriggered(r)?' disabled':''}>
+                    <div class="form-hint">${isDurationTriggered(r)?`Already started ${esc(fmtDateTimeStr(r[14]))} — edit the due date directly instead.`:'Leave blank to use the fixed due date above instead. Deadline starts once full or manually started.'}</div>
                 </div>
                 <div class="form-grid form-grid-2">
                     <div class="form-group">
@@ -2306,6 +2400,7 @@ function showEditAssignment(r) {
         const slides=document.getElementById('ed-slides').value.trim();
         const due=document.getElementById('ed-due').value;
         const start=document.getElementById('ed-start').value;
+        const durationDays=document.getElementById('ed-duration').value;
         const hours=document.getElementById('ed-hours').value;
         const max=document.getElementById('ed-max').value;
         const instructions=document.getElementById('ed-instructions').value;
@@ -2314,12 +2409,14 @@ function showEditAssignment(r) {
         const cardLabel=document.getElementById('ed-label').value.trim();
         const chapterLabel=document.getElementById('ed-chapter').value.trim();
         const err=document.getElementById('ed-err');
-        if(!due){err.textContent='Due date is required.';return;}
+        if(!due&&!(parseFloat(durationDays)>0)){err.textContent='Provide a due date, or a working-period duration.';return;}
         err.textContent='';
         const btn=document.getElementById('ed-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            await postAction('edit_curriculum',{assignmentName:name,fields:{slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel}});
+            const fields={slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel};
+            if(!isDurationTriggered(r))fields.durationDays=durationDays;
+            await postAction('edit_curriculum',{assignmentName:name,fields});
             toast(`"${name}" updated!`,'success');
             close();
             const track=getRoleDisplayInfo().track;
@@ -2343,7 +2440,7 @@ function dirGiveHoursHTML() {
         const regList=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean);
         const credited=(r[3]||'').split(',').map(n=>n.trim()).filter(Boolean);
         const alreadyGiven=credited.length>0;
-        const locked=isLocked(r[5]);
+        const locked=isLocked(r[5],r[14]);
         const volChips=regList.map(n=>{
             const disc=discordMap[n.toLowerCase()]||'';
             const dirR=getDirRoleForName(n);
@@ -2358,10 +2455,10 @@ function dirGiveHoursHTML() {
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
                     <div class="curr-title">${esc(name)}</div>
-                    <div class="curr-meta">Due ${fmtDate(r[1])} · ${esc(r[2]||'0')}h credit · ${regList.length} registered</div>
+                    <div class="curr-meta">${currMetaDateText(r)} · ${esc(r[2]||'0')}h credit · ${regList.length} registered</div>
                 </div>
                 <div style="flex-shrink:0">
-                    ${locked?'<span class="curr-lock-badge">🔒 Locked</span>':'<span class="curr-open-badge">Open</span>'}
+                    ${locked?currLockBadgeHTML(r):'<span class="curr-open-badge">Open</span>'}
                 </div>
             </div>
             ${regList.length?`<div class="vol-chip-row mt-10" data-assign="${esc(name)}"><div class="muted text-small mb-4" style="width:100%">Will receive hours (click ✕ to exclude no-shows):</div>${volChips}</div>`:'<div class="muted text-small mt-8">No volunteers registered.</div>'}
@@ -2603,7 +2700,7 @@ function viewActivities() {
     const assignments=S.data.curriculum||[];
     const upcomingEvs=S.data.upcomingEvents||[];
     const total=assignments.length+upcomingEvs.length;
-    const openAssign=assignments.filter(r=>!isClosed(r[5],r[1])&&!isCompleted(r[1])).length;
+    const openAssign=assignments.filter(r=>!isClosed(r[5],r[1],r[14])&&!isCompleted(r[1])).length;
     const openEvs=upcomingEvs.filter(r=>{
         const cd=toDateStr(r[8]);
         return !cd||cd>=localToday();
@@ -3436,7 +3533,7 @@ function viewMyChapter() {
     const chapSchool=(chapEntry[2]||'').trim();
 
     // Chapter-local upcoming events
-    const chapEvents=(S.data.upcomingEvents||[]).filter(r=>(r[10]||'').trim().toLowerCase()===userSchool);
+    const chapEvents=[...(S.data.upcomingEvents||[])].reverse().filter(r=>(r[10]||'').trim().toLowerCase()===userSchool); // newest first
 
     // Chapter members (volunteers with same school)
     const chapMembers=(S.data.allVolunteers||[]).filter(v=>(v.school||'').trim().toLowerCase()===userSchool);
@@ -3661,7 +3758,7 @@ async function viewCalendar(){
 
     let html=`<div class="view-header"><div><div class="view-title">📅 Calendar</div><div class="view-subtitle">Curio Crate schedule</div></div></div>`;
 
-    Object.keys(months).sort().forEach(key=>{
+    Object.keys(months).sort().reverse().forEach(key=>{
         const {year,month,days}=months[key];
         const firstDay=new Date(year,month,1).getDay(); // 0=Sun
         const totalDays=new Date(year,month+1,0).getDate();

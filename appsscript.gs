@@ -14,10 +14,11 @@
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
  *   O=YMCAFormURL
  *
- * CURRICULUM SHEET columns (A–M):
+ * CURRICULUM SHEET columns (A–O):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
  *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel  M=ChapterLabel
+ *   N=DurationDays(working-period mode)  O=TriggeredAt(when the duration countdown started)
  *
  * EVENTS SHEET columns (A–O):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
@@ -55,7 +56,7 @@ function getSheet(name) {
 
 function initSheetHeaders(sh, name) {
     const headers = {
-        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel'],
+        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt'],
         Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'],
         Chapters:   ['Email','Name','School','Logo','State','City','PresidentPhoto','VicePresident','Treasurer','Secretary','SocialMedia','AuthorizedDirectors'],
         Directors:  ['Email','Name','Role'],
@@ -81,6 +82,15 @@ function findOrAddColumn(sh, headerName) {
 function ensureMissingHeaders(sh, name) {
     if (name === 'Events') {
         const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA'];
+        const lastCol = Math.max(sh.getLastColumn(), expected.length);
+        const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+        expected.forEach(function(col, i) {
+            if (!current[i] || current[i].toString().trim() === '') {
+                sh.getRange(1, i + 1).setValue(col);
+            }
+        });
+    } else if (name === 'Curriculum') {
+        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
         expected.forEach(function(col, i) {
@@ -134,6 +144,7 @@ function doPost(e) {
     try {
         ensureMissingHeaders(getSheet(SHEET_EVENTS),     'Events');
         ensureMissingHeaders(getSheet(SHEET_VOLUNTEERS), 'Volunteers');
+        ensureMissingHeaders(getSheet(SHEET_CURRICULUM), 'Curriculum');
         const body   = JSON.parse(e.postData.contents);
         const result = route(body);
         return ContentService.createTextOutput(JSON.stringify({ ok: true, result }))
@@ -223,6 +234,7 @@ function route(body) {
         case 'edit_curriculum':        return editCurriculum(body);
         case 'register_curriculum':    return registerCurriculum(body);
         case 'unregister_curriculum':  return unregisterCurriculum(body);
+        case 'start_curriculum':       return startCurriculum(body);
         case 'give_hours':             return giveHours(body);
         /* Events */
         case 'record_event':           return recordEvent(body);
@@ -258,6 +270,8 @@ function createCurriculum(b) {
         b.cardDeco             || '',
         b.cardLabel            || '',
         b.chapterLabel         || '',
+        b.durationDays         || '',
+        '',   // TriggeredAt — set by registerCurriculum (auto-fill) or startCurriculum (manual)
     ]);
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
@@ -284,6 +298,7 @@ function editCurriculum(b) {
     if (f.cardDeco      !== undefined) sh.getRange(rowIdx, 11).setValue(f.cardDeco);
     if (f.cardLabel     !== undefined) sh.getRange(rowIdx, 12).setValue(f.cardLabel);
     if (f.chapterLabel  !== undefined) sh.getRange(rowIdx, 13).setValue(f.chapterLabel);
+    if (f.durationDays  !== undefined) sh.getRange(rowIdx, 14).setValue(f.durationDays);
     return 'Updated: ' + b.assignmentName;
 }
 
@@ -299,6 +314,8 @@ function registerCurriculum(b) {
         }
     }
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
+
+    if (rowData[14]) throw new Error('Registration is locked — this assignment has already started.');
 
     const startDatePart = datePartStr(rowData[5]);
     const today = todayStr();
@@ -317,6 +334,16 @@ function registerCurriculum(b) {
         regList.push(b.volunteerName);
         sh.getRange(rowIdx, 8).setValue(regList.join(', '));
     }
+
+    // Auto-trigger the duration-based deadline once every spot is filled
+    const durationDays = parseFloat(rowData[13]) || 0;
+    if (durationDays > 0 && maxVols > 0 && regList.length >= maxVols) {
+        const now = new Date();
+        const due = new Date(now.getTime() + durationDays * 86400000);
+        sh.getRange(rowIdx, 15).setValue(now);
+        sh.getRange(rowIdx, 2).setValue(due);
+    }
+
     return 'Registered: ' + b.volunteerName;
 }
 
@@ -333,6 +360,8 @@ function unregisterCurriculum(b) {
     }
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
+    if (rowData[14]) throw new Error('This assignment has already started — contact your DOC to be removed.');
+
     const startDatePart = datePartStr(rowData[5]);
     const today = todayStr();
     if (startDatePart && startDatePart < today) {
@@ -344,6 +373,31 @@ function unregisterCurriculum(b) {
     const filtered = regList.filter(function(n) { return n.toLowerCase() !== lower; });
     sh.getRange(rowIdx, 8).setValue(filtered.join(', '));
     return 'Unregistered: ' + b.volunteerName;
+}
+
+function startCurriculum(b) {
+    const sh   = SS.getSheetByName(SHEET_CURRICULUM);
+    if (!sh) throw new Error('Curriculum sheet not found.');
+    const data = sh.getDataRange().getValues();
+
+    let rowIdx = -1, rowData = null;
+    for (let i = 1; i < data.length; i++) {
+        if ((data[i][0] || '').trim() === (b.assignmentName || '').trim()) {
+            rowIdx = i + 1; rowData = data[i]; break;
+        }
+    }
+    if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
+
+    if (rowData[14]) throw new Error('This assignment has already started.');
+
+    const durationDays = parseFloat(rowData[13]) || 0;
+    if (!durationDays) throw new Error('This assignment does not have a working-period duration set.');
+
+    const now = new Date();
+    const due = new Date(now.getTime() + durationDays * 86400000);
+    sh.getRange(rowIdx, 15).setValue(now);
+    sh.getRange(rowIdx, 2).setValue(due);
+    return 'Started: ' + b.assignmentName;
 }
 
 function giveHours(b) {

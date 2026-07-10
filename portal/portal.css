@@ -1251,6 +1251,7 @@ hr.divider { border: none; border-top: 1.5px solid var(--border); margin: 16px 0
 .curr-countdown { font-size: 11px; font-weight: 800; color: var(--teal); background: var(--teal-g); border: 1.5px solid rgba(14,168,154,.28); border-radius: 100px; padding: 3px 11px; white-space: nowrap; }
 .curr-open-badge { font-size: 11px; font-weight: 700; color: var(--teal); background: var(--teal-g); border: 1.5px solid rgba(14,168,154,.28); border-radius: 100px; padding: 3px 11px; white-space: nowrap; }
 .curr-lock-badge { font-size: 11px; font-weight: 700; color: var(--textm); background: var(--surface-2); border: 1.5px solid var(--border); border-radius: 100px; padding: 3px 11px; white-space: nowrap; }
+.curr-progress-badge { font-size: 11px; font-weight: 800; color: var(--violet); background: var(--violet-g); border: 1.5px solid rgba(112,72,216,.28); border-radius: 100px; padding: 3px 11px; white-space: nowrap; }
 .curr-reg-badge  { font-size: 11px; font-weight: 800; color: var(--blue); background: var(--blue-g); border: 1.5px solid rgba(58,114,190,.28); border-radius: 100px; padding: 3px 11px; white-space: nowrap; }
 .curr-credit-badge { font-size: 11px; font-weight: 800; color: var(--green); background: var(--green-g); border: 1.5px solid rgba(24,184,136,.28); border-radius: 100px; padding: 3px 11px; white-space: nowrap; }
 .curr-done-badge { font-size: 11px; font-weight: 800; color: var(--green); background: var(--green-g); border: 1.5px solid rgba(24,184,136,.28); border-radius: 100px; padding: 3px 11px; white-space: nowrap; }
