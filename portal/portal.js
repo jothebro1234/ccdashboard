@@ -59,6 +59,11 @@ function getMyAuthorizedChapters(){
 function isChapterScopedDirector(){
     return S.role==='chapter_rep'||(S.authorizedChapters?.length>0);
 }
+// Chapter presidents can freely pick their chapter label (or org-wide) when posting;
+// only multi-chapter-scoped directors stay locked to their assigned chapter.
+function isChapLabelLocked(){
+    return isChapterScopedDirector()&&S.role!=='chapter_rep';
+}
 // Filters director-panel items to only the chapters the current user can manage
 function dirChapterFilterItems(items,type){
     const chapSchools=getMyAuthorizedChapters();
@@ -2214,7 +2219,7 @@ function dirPostAssignHTML() {
                         <input class="form-input" id="pa-label" placeholder="e.g. Urgent, Bonus, Week 3, Special">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Chapter Label ${isChapScoped?'<span style="font-size:11px;color:var(--textm);font-weight:600">(auto-filled)</span>':''}</label>
+                        <label class="form-label">Chapter Label ${isChapLabelLocked()?'<span style="font-size:11px;color:var(--textm);font-weight:600">(auto-filled)</span>':''}</label>
                         ${buildChapComboHTML('pa-chapter',chapSchool)}
                         <div class="form-hint">Leave blank for org-wide. Only chapter members will be able to register.</div>
                     </div>
@@ -2233,7 +2238,7 @@ function attachPostAssignEvents() {
     initColorDecoPickerEvents('pa-color','pa-deco','pa-color-row','pa-deco-row');
     const isChapScoped=isChapterScopedDirector();
     const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
-    initChapCombo('pa-chapter',chapSchool,isChapScoped);
+    initChapCombo('pa-chapter',chapSchool,isChapLabelLocked());
 
     const dueRow=document.getElementById('pa-due-row');
     const durRow=document.getElementById('pa-duration-row');
@@ -2397,7 +2402,7 @@ function showEditAssignment(r) {
                     <input class="form-input" id="ed-label" value="${esc(selLabel)}" placeholder="e.g. Urgent, Bonus, Week 3, Special">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Chapter Label ${isChapScoped?'<span style="font-size:11px;color:var(--textm);font-weight:600">(auto-filled)</span>':''}</label>
+                    <label class="form-label">Chapter Label ${isChapLabelLocked()?'<span style="font-size:11px;color:var(--textm);font-weight:600">(auto-filled)</span>':''}</label>
                     ${buildChapComboHTML('ed-chapter',selChapter||chapSchool)}
                     <div class="form-hint">Leave blank for org-wide. Only chapter members will be able to register.</div>
                 </div>
@@ -2407,7 +2412,7 @@ function showEditAssignment(r) {
         </div>`;
     const close=openModal(html);
     initColorDecoPickerEvents('ed-color','ed-deco','ed-color-row','ed-deco-row');
-    initChapCombo('ed-chapter',selChapter||chapSchool,isChapScoped);
+    initChapCombo('ed-chapter',selChapter||chapSchool,isChapLabelLocked());
     document.getElementById('ed-submit-btn').addEventListener('click',async()=>{
         const slides=document.getElementById('ed-slides').value.trim();
         const due=document.getElementById('ed-due').value;
@@ -3168,7 +3173,6 @@ function dirPostEventHTML() {
     const isChapScoped=isChapterScopedDirector();
     const rawExisting=isChapScoped?dirChapterFilterItems(S.data.upcomingEvents||[],'event'):S.data.upcomingEvents||[];
     const existing=sortByRecency(rawExisting);
-    const isChapRep=S.role==='chapter_rep';
     const chapSchool=isChapScoped?getMyAuthorizedChapters()[0]||'':'';
 
     const existingCards=existing.map(r=>{
@@ -3258,7 +3262,7 @@ function dirPostEventHTML() {
                         </label>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Chapter Label ${isChapRep?'(auto-filled)':''}</label>
+                        <label class="form-label">Chapter Label ${isChapLabelLocked()?'(auto-filled)':''}</label>
                         ${buildChapComboHTML('pe-chapter',chapSchool)}
                         <div class="form-hint">Leave blank for org-wide. Only chapters in the Chapters sheet appear.</div>
                     </div>
@@ -3274,7 +3278,7 @@ function dirPostEventHTML() {
 }
 
 function attachPostEventEvents() {
-    initChapCombo('pe-chapter', S.chapData?.school||'', S.role==='chapter_rep');
+    initChapCombo('pe-chapter', S.chapData?.school||'', isChapLabelLocked());
     initColorDecoPickerEvents('pe-color','pe-deco','pe-color-row','pe-deco-row');
     initLabelPresets('pe-label');
     document.getElementById('pe-submit-btn')?.addEventListener('click',async()=>{
