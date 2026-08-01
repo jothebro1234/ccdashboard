@@ -15,6 +15,7 @@ const S = {
     _dirUser: null, // saved director user when switching views
     chapData: null, // { name, school } for chapter_rep
     authorizedChapters: [], // [{name, school}] for directors granted chapter access
+    isChapterPres: false, // true when the Directors sheet Role cell literally contained "pres"
 };
 
 let _othersExpanded = false;
@@ -78,7 +79,14 @@ function dirChapterFilterItems(items,type){
 /* ── Role helpers ─────────────────────────────────────────── */
 const EXEC_ROLES=['president','cef','vp','sec','tres','cpo'];
 // Directors sheet col C may hold multiple roles for one person, e.g. "doc, doo" — split on comma/slash.
-function parseRoleList(s){return[...new Set(String(s||'').split(/[,/]+/).map(x=>x.trim().toLowerCase()).filter(Boolean))];}
+// "pres" (chapter president) is a shorthand alias that always expands to doc+doo combined,
+// so a chapter president gets full DOC+DOO permissions/visibility without listing both.
+function parseRoleList(s){
+    const raw=String(s||'').split(/[,/]+/).map(x=>x.trim().toLowerCase()).filter(Boolean);
+    const out=new Set();
+    raw.forEach(x=>{if(x==='pres'){out.add('doc');out.add('doo');}else out.add(x);});
+    return[...out];
+}
 function toRoleArr(r){return Array.isArray(r)?r:parseRoleList(r);}
 function isExecRole(r){return toRoleArr(r).some(x=>EXEC_ROLES.includes(x));}
 function canPostAssignment(r){return toRoleArr(r).some(x=>['doc','chapter_rep',...EXEC_ROLES].includes(x));}
@@ -87,11 +95,16 @@ function canGiveHoursAssign(r){return toRoleArr(r).some(x=>['doc','chapter_rep',
 function canGiveHoursEvent(r){return toRoleArr(r).some(x=>['doo','chapter_rep',...EXEC_ROLES].includes(x));}
 function canManageTiersRole(r){return toRoleArr(r).some(x=>['hr',...EXEC_ROLES].includes(x));}
 function canRecordAdHoc(r){return toRoleArr(r).some(x=>['doo','chapter_rep',...EXEC_ROLES].includes(x));}
+// Chapter presidents (either signed in via the Chapters sheet, or a "pres"-role director) can
+// request a DOC/DOO be granted for their chapter. Org execs review and approve/deny the request.
+function canRequestDirector(){return S.role==='chapter_rep'||S.isChapterPres||isChapterScopedDirector();}
+function canApproveDirectorRequests(r){return isExecRole(r);}
 function roleLabel(r){const m={doc:'DOC',doo:'DOO',dop:'DOP',president:'Pres',cef:'CEF',vp:'VP',sec:'Sec',tres:'Tres',cpo:'CPO',hr:'HR',mr:'MR',chapter_rep:'ChapRep',trial:'Trial'};return toRoleArr(r).map(x=>m[x]||x.toUpperCase()).join('/');}
 function getDirTrack(r){if(isExecRole(r)||['hr','mr','trial'].includes(r))return'All';return(CONFIG.DIRECTORS[r]||{}).track||'All';}
 // Combined title/track for a user who may hold multiple director roles (S.roles).
 function getRoleDisplayInfo(){
     const roles=(S.roles&&S.roles.length)?S.roles:[S.role];
+    if(S.isChapterPres)return{title:'Chapter President',track:'All'};
     if(roles.length<=1){const r=roles[0];return CONFIG.DIRECTORS[r]||{title:roleLabel(r),track:getDirTrack(r)};}
     const title=roles.map(r=>(CONFIG.DIRECTORS[r]||{}).title||roleLabel(r)).join(' & ');
     const tracks=[...new Set(roles.map(getDirTrack))];
@@ -389,8 +402,41 @@ function toTimeStr(s) {
     const m=String(s).match(/[T ](\d{2}:\d{2})/);
     return m?m[1]:'';
 }
-/* Format a stored date/datetime value to human-readable, including time if present */
-function fmtDateTimeStr(s) {
+/* ── Timezone helpers ─────────────────────────────────────── */
+// Curated IANA zones offered on Post/Edit Assignment & Event forms — kept short and
+// unambiguous rather than an exhaustive IANA list. Add more here if chapters expand regions.
+const TZ_OPTIONS=[
+    {v:'America/New_York',   l:'Eastern (ET)'},
+    {v:'America/Chicago',    l:'Central (CT)'},
+    {v:'America/Denver',     l:'Mountain (MT)'},
+    {v:'America/Phoenix',    l:'Arizona (no DST)'},
+    {v:'America/Los_Angeles',l:'Pacific (PT)'},
+    {v:'America/Anchorage',  l:'Alaska (AKT)'},
+    {v:'Pacific/Honolulu',   l:'Hawaii (HST)'},
+    {v:'UTC',                l:'UTC'},
+];
+// Best-guess default timezone for a fresh (non-edit) form, from the poster's own browser.
+function guessTZ() {
+    try {
+        const z=Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return TZ_OPTIONS.some(o=>o.v===z)?z:'America/New_York';
+    } catch(_) { return'America/New_York'; }
+}
+function tzSelectHTML(id,selected) {
+    const sel=selected&&TZ_OPTIONS.some(o=>o.v===selected)?selected:guessTZ();
+    return`<select class="form-input" id="${id}">${TZ_OPTIONS.map(o=>`<option value="${o.v}"${o.v===sel?' selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+}
+// Short zone abbreviation (e.g. "EDT") for a given IANA zone at a given instant — accounts for DST.
+function tzAbbrev(tz,date) {
+    if(!tz)return'';
+    try {
+        const parts=new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(date||new Date());
+        const p=parts.find(x=>x.type==='timeZoneName');
+        return p?p.value:'';
+    } catch(_) { return''; }
+}
+/* Format a stored date/datetime value to human-readable, including time and timezone if present */
+function fmtDateTimeStr(s,tz) {
     if(!s)return'—';
     const ds=toDateStr(s);
     const ts=toTimeStr(s);
@@ -401,7 +447,8 @@ function fmtDateTimeStr(s) {
     const[h,min]=ts.split(':').map(Number);
     const ampm=h>=12?'PM':'AM';
     const hr12=h%12||12;
-    return`${dateFmt} at ${hr12}:${String(min).padStart(2,'0')} ${ampm}`;
+    const tzLabel=tz?` ${tzAbbrev(tz,new Date(`${ds}T${ts}:00`))}`.trimEnd():'';
+    return`${dateFmt} at ${hr12}:${String(min).padStart(2,'0')} ${ampm}${tzLabel}`;
 }
 /* Convert stored date/datetime to datetime-local input format */
 function toDateTimeLocal(s) {
@@ -581,17 +628,19 @@ async function loadVolunteerData(name) {
 }
 
 async function loadDirectorData(track) {
-    const [volRows,currRows,evRows,chapRows,dirRows]=await Promise.all([
+    const [volRows,currRows,evRows,chapRows,dirRows,dirReqRows]=await Promise.all([
         fetchSheet(CONFIG.SHEET_NAME),
         fetchSheet(CONFIG.CURRICULUM_SHEET_NAME).catch(()=>[]),
         fetchSheet(CONFIG.EVENTS_SHEET_NAME).catch(()=>[]),
         fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
         fetchSheet(CONFIG.DIRECTORS_SHEET||'Directors').catch(()=>[]),
+        fetchSheet(CONFIG.DIRECTOR_REQUESTS_SHEET||'DirectorRequests').catch(()=>[]),
     ]);
     const currData=currRows.slice(1).filter(r=>r[0]);
     const evData=evRows.slice(1).filter(r=>r[0]);
     S.data.chapters=chapRows.slice(1).filter(r=>r[0]);
     S.data.directors=dirRows.slice(1).filter(r=>r[0]);
+    S.data.directorRequests=dirReqRows.slice(1).filter(r=>r[0]);
     const all=volRows.slice(1).map(r=>({
         name:(r[0]||'').trim(),discord:(r[1]||'').trim(),school:(r[2]||'').trim(),
         avatar:(r[3]||'').trim(),email:(r[4]||'').trim(),track:deriveTrack(r[5],r[9]),
@@ -670,6 +719,7 @@ function saveSession() {
             role:S.role,roles:S.roles||null,dirRole:S.dirRole,dirRoles:S.dirRoles||null,user:S.user,
             volUser:S.volUser||null,chapData:S.chapData||null,
             authorizedChapters:S.authorizedChapters||[],
+            isChapterPres:S.isChapterPres||false,
         }));
     } catch(_) {}
 }
@@ -683,6 +733,7 @@ async function restoreSession(sess) {
     S.volUser=sess.volUser||null;
     S.chapData=sess.chapData||null;
     S.authorizedChapters=sess.authorizedChapters||[];
+    S.isChapterPres=sess.isChapterPres||false;
     S._dirUser=sess.dirRole?sess.user:null;
     if(S.role==='volunteer'){
         await loadVolunteerData(S.user.name);
@@ -718,6 +769,7 @@ async function restoreSession(sess) {
                     if(freshRoles.length){
                         S.roles=freshRoles;S.dirRoles=freshRoles;
                         S.role=freshRoles[0];S.dirRole=freshRoles[0];
+                        S.isChapterPres=/\bpres\b/.test((freshDirRow[2]||'').toLowerCase());
                         if(S.user)S.user.role=freshRoles[0];
                         if(S._dirUser)S._dirUser.role=freshRoles[0];
                     }
@@ -735,7 +787,7 @@ function logout() {
     if(_pollTimer){clearInterval(_pollTimer);_pollTimer=null;}
     // Reset state
     S.role=null;S.roles=null;S.dirRole=null;S.dirRoles=null;S.user=null;S.volUser=null;
-    S._dirUser=null;S.chapData=null;S.view=null;S.subTab=null;
+    S._dirUser=null;S.chapData=null;S.view=null;S.subTab=null;S.isChapterPres=false;
     S.data={};S.lbCat='hours';S.lbPrevRanks={};
     document.getElementById('portal-shell').style.display='none';
     document.getElementById('auth-gate').style.display='';
@@ -825,6 +877,7 @@ async function handleGoogleSignIn(credentialResponse) {
             S.roles=roles;
             S.dirRole=role;
             S.dirRoles=roles;
+            S.isChapterPres=/\bpres\b/.test((dirRow[2]||'').toLowerCase());
             S.user={name:dirName,email,role,track:getRoleDisplayInfo().track,avatar:payload.picture||''};
             S._dirUser=S.user;
             S.volUser=volUser;
@@ -1302,8 +1355,8 @@ function viewDashboard() {
             <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
                     ${deap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Event')}</div>${deap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Event')}</div>`}
-                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
-                    ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate)}</div>`:''}
+                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate,r[16])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
+                    ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate,r[16])}</div>`:''}
                     ${done?`<div class="curr-waiting">⏳ Waiting for hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots</div>`}
                 </div>
                 <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':closed?'<span class="curr-lock-badge">🔒 Closed</span>':`<span class="curr-countdown" data-lockdate="${esc(closeDate)}">${esc(countdown)}</span>`}</div>
@@ -1326,7 +1379,7 @@ function viewDashboard() {
                 <div style="flex:1;min-width:0">
                     ${dap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Assignment')}</div>${dap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Assignment')}</div>`}
                     <div class="curr-meta" style="margin-top:6px">${currMetaDateHTML(r)}<span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
-                    ${!locked&&startDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Closes ${fmtDateTimeStr(startDate)}</div>`:''}
+                    ${!locked&&startDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Closes ${fmtDateTimeStr(startDate,r[16])}</div>`:''}
                     ${done?`<div class="curr-waiting">⏳ Waiting for director to confirm hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots filled</div>`}
                 </div>
                 <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':locked?currLockBadgeHTML(r):`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`}</div>
@@ -1584,12 +1637,12 @@ function renderCurrList(filter) {
 function currMetaDateHTML(r) {
     const dur=curriculumDurationDays(r),started=isDurationTriggered(r);
     if(dur>0&&!started)return`<span class="curr-meta-date">🕒 ${dur}-day deadline · starts once full or manually started</span>`;
-    if(dur>0&&started)return`<span class="curr-meta-date">🚀 Started ${fmtDateTimeStr(r[14])} · Due ${fmtDateTimeStr(r[1])}</span>`;
-    return`<span class="curr-meta-date">📅 Due ${fmtDateTimeStr(r[1])}</span>`;
+    if(dur>0&&started)return`<span class="curr-meta-date">🚀 Started ${fmtDateTimeStr(r[14],r[16])} · Due ${fmtDateTimeStr(r[1],r[16])}</span>`;
+    return`<span class="curr-meta-date">📅 Due ${fmtDateTimeStr(r[1],r[16])}</span>`;
 }
 function currMetaDateText(r) {
     if(curriculumDurationDays(r)>0&&!isDurationTriggered(r))return`🕒 ${curriculumDurationDays(r)}-day deadline · not started`;
-    return`Due ${fmtDateTimeStr(r[1])}`;
+    return`Due ${fmtDateTimeStr(r[1],r[16])}`;
 }
 /* Badge for the "registration closed" state — distinguishes an in-progress duration
    assignment (already started, deadline ticking) from a plain past-lock-date closure. */
@@ -1649,7 +1702,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
         :`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`;
 
     const signupCloseHTML=!done&&!locked&&startDate
-        ?`<div class="curr-signup-close">🔔 Signups close <strong>${fmtDateTimeStr(startDate)}</strong></div>`:'';
+        ?`<div class="curr-signup-close">🔔 Signups close <strong>${fmtDateTimeStr(startDate,r[16])}</strong></div>`:'';
 
     // Slot grid: filled names + empty open slots
     const slotsCount=maxVols>0?maxVols:regList.length;
@@ -1783,9 +1836,9 @@ function showAssignmentDetail(r) {
     const instructions=r[8]||'';
     const done=isCompleted(r[1]);
     const locked=isClosed(startDate,r[1],r[14]);
-    const lockDateStr=startDate?fmtDateTimeStr(startDate):'';
+    const lockDateStr=startDate?fmtDateTimeStr(startDate,r[16]):'';
     const dur=curriculumDurationDays(r),started=isDurationTriggered(r);
-    const dueChipStr=(dur>0&&!started)?`🕒 ${dur}-day deadline (not started)`:`📅 Due ${fmtDateTimeStr(r[1])}`;
+    const dueChipStr=(dur>0&&!started)?`🕒 ${dur}-day deadline (not started)`:`📅 Due ${fmtDateTimeStr(r[1],r[16])}`;
 
     let stateBadge='';
     if(done)stateBadge='<span class="curr-done-badge">✅ Completed</span>';
@@ -2024,12 +2077,15 @@ function viewDirectorPanel(activeTab) {
     const roles=(S.roles&&S.roles.length)?S.roles:[r];
     const roleInfo=getRoleDisplayInfo();
 
+    const pendingReqCount=(S.data.directorRequests||[]).filter(r=>(r[7]||'').trim().toLowerCase()==='pending').length;
     const tabs=[
         ...(canPostEvent(roles)?      [{id:'post-event',       label:'📅 Post Event'}]:[]),
         ...(canPostAssignment(roles)? [{id:'post-assignment',  label:'📋 Post Assignment'}]:[]),
         ...(canGiveHoursAssign(roles)?[{id:'give-hours',       label:'✅ Give Hours'}]:[]),
         ...(canGiveHoursEvent(roles)? [{id:'give-event-hours', label:'🎓 Give Event Hours'}]:[]),
         {id:'roster', label:'👥 Roster'},
+        ...(canRequestDirector()?           [{id:'request-director', label:'🙋 Request DOC/DOO'}]:[]),
+        ...(canApproveDirectorRequests(roles)?[{id:'director-requests', label:`🗂 Director Requests${pendingReqCount?` (${pendingReqCount})`:''}`}]:[]),
     ];
 
     const chapScoped=isChapterScopedDirector();
@@ -2071,6 +2127,8 @@ function renderDirPanel(tab) {
         case 'give-hours':      body.innerHTML=dirGiveHoursHTML();       attachGiveHoursEvents();      break;
         case 'post-event':      body.innerHTML=dirPostEventHTML();       attachPostEventEvents();      break;
         case 'give-event-hours':body.innerHTML=dirGiveEventHoursHTML();  attachGiveEventHoursEvents(); break;
+        case 'request-director':   body.innerHTML=dirRequestDirectorHTML();   attachRequestDirectorEvents();   break;
+        case 'director-requests':  body.innerHTML=dirApproveRequestsHTML();   attachApproveRequestsEvents();   break;
         default:                body.innerHTML=dirPostEventHTML();       attachPostEventEvents();
     }
 }
@@ -2112,6 +2170,141 @@ function attachRosterEvents() {
         });
     };
     search?.addEventListener('input',filter);
+}
+
+/* ─── REQUEST DIRECTOR (chapter president → DOC/DOO grant) ────── */
+function reqStatusBadgeHTML(status) {
+    const s=(status||'').trim().toLowerCase();
+    if(s==='approved')return'<span class="curr-done-badge">✅ Approved</span>';
+    if(s==='denied')return'<span class="curr-lock-badge">✕ Denied</span>';
+    return'<span class="curr-open-badge">⏳ Pending</span>';
+}
+function dirRequestDirectorHTML() {
+    const chapSchool=getMyChapterSchool();
+    const myEmail=(S.user?.email||'').trim().toLowerCase();
+    const mine=[...(S.data.directorRequests||[])].reverse().filter(r=>(r[4]||'').trim().toLowerCase()===myEmail);
+    const rows=mine.map(r=>`
+        <div class="curr-card" style="padding:12px 14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+                <div style="min-width:0">
+                    <div style="font-weight:700">${esc(r[1]||'')} ${r[2]?`· ${esc(r[2])}`:''}</div>
+                    <div class="muted text-small" style="margin-top:2px">Requested as ${roleLabel(r[3])} · ${esc(fmtDate(r[8]))}</div>
+                </div>
+                <div style="flex-shrink:0">${reqStatusBadgeHTML(r[7])}</div>
+            </div>
+        </div>`).join('')||'<div class="muted text-small">No requests yet.</div>';
+
+    return `
+        <div style="display:grid;grid-template-columns:1fr 1.1fr;gap:20px;align-items:start">
+            <div class="card">
+                <div class="card-title">REQUEST A CHAPTER DOC/DOO</div>
+                <div class="form-hint mb-12">Ask an org exec to grant Director of Curriculum or Director of Operations access, scoped to your chapter${chapSchool?` (${esc(chapSchool)})`:''}. They'll review it before it takes effect.</div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Their Email *</label>
+                        <input class="form-input" id="rd-email" type="email" placeholder="name@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Their Name <span style="font-size:11px;color:var(--textm);font-weight:600">(optional)</span></label>
+                        <input class="form-input" id="rd-name" placeholder="Jane Doe">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Grant Which Role? *</label>
+                        <select class="form-input" id="rd-role">
+                            <option value="doc">Director of Curriculum (DOC)</option>
+                            <option value="doo">Director of Operations (DOO)</option>
+                        </select>
+                    </div>
+                    <div class="form-err" id="rd-err"></div>
+                    <button class="btn btn-primary" id="rd-submit-btn">🙋 Submit Request</button>
+                </div>
+            </div>
+            <div>
+                <div class="section-title">MY REQUESTS (${mine.length})</div>
+                ${rows}
+            </div>
+        </div>`;
+}
+
+function attachRequestDirectorEvents() {
+    document.getElementById('rd-submit-btn')?.addEventListener('click',async()=>{
+        const requestedEmail=document.getElementById('rd-email').value.trim().toLowerCase();
+        const requestedName=document.getElementById('rd-name').value.trim();
+        const requestedRole=document.getElementById('rd-role').value;
+        const err=document.getElementById('rd-err');
+        if(!requestedEmail||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requestedEmail)){err.textContent='A valid email is required.';return;}
+        err.textContent='';
+        const btn=document.getElementById('rd-submit-btn');
+        btn.disabled=true;btn.textContent='Submitting…';
+        try {
+            await postAction('request_director',{
+                requestedEmail,requestedName,requestedRole,
+                byEmail:S.user?.email||'',byName:S.user?.name||'',
+                chapterSchool:getMyChapterSchool(),
+            });
+            toast('Request submitted!','success');
+            await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
+            viewDirectorPanel('request-director');
+        } catch(e){err.textContent=e.message;btn.disabled=false;btn.textContent='🙋 Submit Request';}
+    });
+}
+
+/* ─── APPROVE DIRECTOR REQUESTS (org execs) ────────────────────── */
+function dirApproveRequestsHTML() {
+    const all=[...(S.data.directorRequests||[])].reverse();
+    const pending=all.filter(r=>(r[7]||'').trim().toLowerCase()==='pending');
+    const decided=all.filter(r=>(r[7]||'').trim().toLowerCase()!=='pending').slice(0,20);
+
+    const rowHTML=(r,withActions)=>`
+        <div class="curr-card" style="padding:12px 14px" data-req-id="${esc(r[0]||'')}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+                <div style="min-width:0">
+                    <div style="font-weight:700">${esc(r[1]||'')} ${r[2]?`· ${esc(r[2])}`:''}</div>
+                    <div class="muted text-small" style="margin-top:2px">Requesting ${roleLabel(r[3])}${r[6]?` for ${esc(r[6])}`:''}</div>
+                    <div class="muted text-small" style="margin-top:2px">Requested by ${esc(r[5]||r[4]||'')} · ${esc(fmtDate(r[8]))}</div>
+                </div>
+                <div style="flex-shrink:0">${reqStatusBadgeHTML(r[7])}</div>
+            </div>
+            ${withActions?`<div class="curr-actions mt-10">
+                <button class="btn btn-primary btn-sm rd-approve-btn" data-id="${esc(r[0]||'')}">✓ Approve</button>
+                <button class="btn btn-ghost btn-sm rd-deny-btn" data-id="${esc(r[0]||'')}">✕ Deny</button>
+            </div>`:''}
+        </div>`;
+
+    return `
+        <div class="section-title">PENDING (${pending.length})</div>
+        ${pending.map(r=>rowHTML(r,true)).join('')||'<div class="muted text-small mb-16">No pending requests.</div>'}
+        <div class="section-title mt-20">RECENTLY DECIDED</div>
+        ${decided.map(r=>rowHTML(r,false)).join('')||'<div class="muted text-small">Nothing decided yet.</div>'}`;
+}
+
+function attachApproveRequestsEvents() {
+    document.querySelectorAll('.rd-approve-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const id=btn.dataset.id;
+            if(!confirm('Approve this request? The email will be granted the role and scoped to the requesting chapter.'))return;
+            btn.disabled=true;btn.textContent='Approving…';
+            try {
+                await postAction('approve_director_request',{requestId:id,decidedBy:S.user?.email||''});
+                toast('Request approved!','success');
+                await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
+                viewDirectorPanel('director-requests');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✓ Approve';}
+        };
+    });
+    document.querySelectorAll('.rd-deny-btn').forEach(btn=>{
+        btn.onclick=async()=>{
+            const id=btn.dataset.id;
+            if(!confirm('Deny this request?'))return;
+            btn.disabled=true;btn.textContent='Denying…';
+            try {
+                await postAction('deny_director_request',{requestId:id,decidedBy:S.user?.email||''});
+                toast('Request denied.','success');
+                await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
+                viewDirectorPanel('director-requests');
+            } catch(e){toast(e.message,'error');btn.disabled=false;btn.textContent='✕ Deny';}
+        };
+    });
 }
 
 /* ─── POST ASSIGNMENT (DOC) ─────────────────────────────────── */
@@ -2186,6 +2379,10 @@ function dirPostAssignHTML() {
                             <input class="form-input" type="datetime-local" id="pa-start">
                             <div class="form-hint">After this, no new sign-ups</div>
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Timezone <span style="font-size:11px;color:var(--textm);font-weight:600">(what the dates/times above are set in)</span></label>
+                        ${tzSelectHTML('pa-tz')}
                     </div>
                     <div class="form-grid form-grid-2" id="pa-duration-row" style="display:none">
                         <div class="form-group">
@@ -2263,6 +2460,7 @@ function attachPostAssignEvents() {
         const cardDeco=document.getElementById('pa-deco').value;
         const cardLabel=document.getElementById('pa-label').value.trim();
         const chapterLabel=document.getElementById('pa-chapter').value.trim();
+        const timezone=document.getElementById('pa-tz').value;
         const err=document.getElementById('pa-err');
         if(!name||!hours||!max||!instructions){err.textContent='All fields including instructions are required.';return;}
         if(!durationMode&&(!due||!start)){err.textContent='Due date and registration lock date are required.';return;}
@@ -2277,7 +2475,7 @@ function attachPostAssignEvents() {
                 durationDays:durationMode?durationDays:'',
                 hours,contributors:'',
                 slidesLink:slides,startDate:start,maxVolunteers:max,
-                registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,chapterLabel,
+                registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone,
             });
             toast(`"${name}" posted!`,'success');
             ['pa-name','pa-slides','pa-due','pa-start','pa-start-dur','pa-duration','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
@@ -2378,9 +2576,13 @@ function showEditAssignment(r) {
                     </div>
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Timezone</label>
+                    ${tzSelectHTML('ed-tz',r[16]||'')}
+                </div>
+                <div class="form-group">
                     <label class="form-label">Working Period (days) <span style="font-size:11px;color:var(--textm);font-weight:600">(duration mode — optional)</span></label>
                     <input class="form-input" type="number" id="ed-duration" value="${esc(r[13]||'')}" min="1" step="1"${isDurationTriggered(r)?' disabled':''}>
-                    <div class="form-hint">${isDurationTriggered(r)?`Already started ${esc(fmtDateTimeStr(r[14]))} — edit the due date directly instead.`:'Leave blank to use the fixed due date above instead. Deadline starts once full or manually started.'}</div>
+                    <div class="form-hint">${isDurationTriggered(r)?`Already started ${esc(fmtDateTimeStr(r[14],r[16]))} — edit the due date directly instead.`:'Leave blank to use the fixed due date above instead. Deadline starts once full or manually started.'}</div>
                 </div>
                 <div class="form-grid form-grid-2">
                     <div class="form-group">
@@ -2425,13 +2627,14 @@ function showEditAssignment(r) {
         const cardDeco=document.getElementById('ed-deco').value;
         const cardLabel=document.getElementById('ed-label').value.trim();
         const chapterLabel=document.getElementById('ed-chapter').value.trim();
+        const timezone=document.getElementById('ed-tz').value;
         const err=document.getElementById('ed-err');
         if(!due&&!(parseFloat(durationDays)>0)){err.textContent='Provide a due date, or a working-period duration.';return;}
         err.textContent='';
         const btn=document.getElementById('ed-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            const fields={slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel};
+            const fields={slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone};
             if(!isDurationTriggered(r))fields.durationDays=durationDays;
             await postAction('edit_curriculum',{assignmentName:name,fields});
             toast(`"${name}" updated!`,'success');
@@ -2902,7 +3105,7 @@ function evCardHTML(r,lowerName,notEligible=false) {
         :`<span class="curr-countdown" data-lockdate="${esc(closeDate)}">${esc(countdown)}</span>`;
 
     const signupCloseHTML=!done&&!closed&&closeDate
-        ?`<div class="curr-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate)}</strong></div>`:'';
+        ?`<div class="curr-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate,r[16])}</strong></div>`:'';
 
     const requiresYMCA=isChecked(r[14]);
     const hasYMCAForm=!!(S.user?.ymcaFormURL);
@@ -2950,7 +3153,7 @@ function evCardHTML(r,lowerName,notEligible=false) {
                         <div class="curr-title" style="margin-bottom:0">${esc(name)}</div>
                         <span class="chap-only-badge">🏫 ${esc(chapterLabel)}</span>
                     </div>
-                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
+                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate,r[16])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 </div>
                 <div style="flex-shrink:0"><span class="curr-lock-badge">🏫 Chapter only</span></div>
             </div>
@@ -2982,7 +3185,7 @@ function evCardHTML(r,lowerName,notEligible=false) {
                     <div class="curr-title">${esc(name)}</div>
                     ${chapterBadge}${eap.badge}
                 </div>
-                <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
+                <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate,r[16])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 ${tagsHTML}
                 ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
                 ${signupCloseHTML}
@@ -3015,7 +3218,7 @@ function evSimpleRowHTML(r,notEligible=false) {
         <span class="curr-simple-icon">${notEligible?'🏫':done?'✅':closed?'🔒':'📅'}</span>
         <div style="flex:1;min-width:0">
             <div class="curr-simple-name">${esc(name)}${chapterLabel&&!notEligible?` <span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
-            <div class="curr-simple-meta">${fmtDateTimeStr(evDate)} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
+            <div class="curr-simple-meta">${fmtDateTimeStr(evDate,r[16])} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
         </div>
         <span class="curr-simple-badge">${badge}</span>
     </div>`;
@@ -3065,7 +3268,7 @@ function showEventDetail(r) {
         </div>
         <div class="modal-body">
             <div class="modal-chips">
-                <span class="modal-chip">📅 ${fmtDateTimeStr(evDate)}</span>
+                <span class="modal-chip">📅 ${fmtDateTimeStr(evDate,r[16])}</span>
                 <span class="modal-chip">⏱ ${esc(hours)}h credit</span>
                 <span class="modal-chip">👥 ${regList.length}/${maxVols||'?'} slots</span>
                 ${chapterLabel?`<span class="chapter-label-badge">🏫 ${esc(chapterLabel)}</span>`:''}
@@ -3073,7 +3276,7 @@ function showEventDetail(r) {
                 ${stateBadge}
             </div>
             ${ymcaBannerHTML}
-            ${!done&&!closed&&closeDate?`<div class="modal-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate)}</strong></div>`:''}
+            ${!done&&!closed&&closeDate?`<div class="modal-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate,r[16])}</strong></div>`:''}
             ${instructions?`<div class="modal-section">
                 <div class="modal-section-title">INSTRUCTIONS</div>
                 <div class="modal-instructions">${esc(instructions).replace(/\n/g,'<br>')}</div>
@@ -3193,7 +3396,7 @@ function dirPostEventHTML() {
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                         <div class="curr-title">${esc(r[0]||'')}</div>${chap}${eap.badge}
                     </div>
-                    <div class="curr-meta">${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
+                    <div class="curr-meta">${fmtDateTimeStr(r[1],r[16])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
                 </div>
                 <div style="flex-shrink:0">${statusBadge}</div>
             </div>
@@ -3224,6 +3427,10 @@ function dirPostEventHTML() {
                             <input class="form-input" type="datetime-local" id="pe-close">
                             <div class="form-hint">After this, no new sign-ups</div>
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Timezone <span style="font-size:11px;color:var(--textm);font-weight:600">(what the dates/times above are set in)</span></label>
+                        ${tzSelectHTML('pe-tz')}
                     </div>
                     <div class="form-grid form-grid-2">
                         <div class="form-group">
@@ -3295,13 +3502,14 @@ function attachPostEventEvents() {
         const cardDeco=document.getElementById('pe-deco').value;
         const cardLabel=document.getElementById('pe-label').value.trim();
         const requiresYMCA=document.getElementById('pe-ymca').checked?'TRUE':'FALSE';
+        const timezone=document.getElementById('pe-tz').value;
         const err=document.getElementById('pe-err');
         if(!name||!eventDate||!signupCloseDate||!hours||!maxVolunteers){err.textContent='All required fields must be filled.';return;}
         err.textContent='';
         const btn=document.getElementById('pe-submit-btn');
         btn.disabled=true;btn.textContent='Posting…';
         try {
-            await postAction('create_event',{eventName:name,eventDate,signupCloseDate,hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,cardColor,cardDeco,cardLabel,requiresYMCA,registeredList:''});
+            await postAction('create_event',{eventName:name,eventDate,signupCloseDate,hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,cardColor,cardDeco,cardLabel,requiresYMCA,registeredList:'',timezone});
             toast(`"${name}" posted!`,'success');
             ['pe-name','pe-date','pe-close','pe-hours','pe-max','pe-instructions','pe-label'].forEach(id=>{document.getElementById(id).value='';});
             document.getElementById('pe-assembly').checked=false;
@@ -3375,6 +3583,10 @@ function showEditEvent(r) {
                         <input class="form-input" type="datetime-local" id="ee-close" value="${esc(toDateTimeLocal(r[8]))}">
                     </div>
                 </div>
+                <div class="form-group">
+                    <label class="form-label">Timezone</label>
+                    ${tzSelectHTML('ee-tz',r[16]||'')}
+                </div>
                 <div class="form-grid form-grid-2">
                     <div class="form-group">
                         <label class="form-label">Hours Credit</label>
@@ -3424,13 +3636,14 @@ function showEditEvent(r) {
         const cardDeco=document.getElementById('ee-deco').value;
         const cardLabel=document.getElementById('ee-label').value.trim();
         const requiresYMCA=document.getElementById('ee-ymca').checked?'TRUE':'FALSE';
+        const timezone=document.getElementById('ee-tz').value;
         const err=document.getElementById('ee-err');
         if(!eventDate){err.textContent='Event date is required.';return;}
         err.textContent='';
         const btn=document.getElementById('ee-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            await postAction('edit_event',{eventName:name,fields:{eventDate,signupCloseDate,hours,maxVolunteers,chapterLabel,instructions,cardColor,cardDeco,cardLabel,requiresYMCA}});
+            await postAction('edit_event',{eventName:name,fields:{eventDate,signupCloseDate,hours,maxVolunteers,chapterLabel,instructions,cardColor,cardDeco,cardLabel,requiresYMCA,timezone}});
             toast(`"${name}" updated!`,'success');
             close();
             await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
@@ -3475,7 +3688,7 @@ function dirGiveEventHoursHTML() {
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
                     <div class="curr-title">${esc(name)}</div>
-                    <div class="curr-meta">${fmtDateTimeStr(evDate)} · ${esc(r[2]||'0')}h credit · ${regList.length} registered</div>
+                    <div class="curr-meta">${fmtDateTimeStr(evDate,r[16])} · ${esc(r[2]||'0')}h credit · ${regList.length} registered</div>
                 </div>
                 <div style="flex-shrink:0">
                     ${done?'<span class="curr-done-badge">✅ Completed</span>':'<span class="curr-lock-badge">🔒 Closed</span>'}
@@ -3575,7 +3788,7 @@ function viewMyChapter() {
                 const closed=(r[8]&&toDateStr(r[8])<localToday());
                 return `<div class="curr-card ev-card">
                     <div class="curr-title">${esc(r[0]||'')}</div>
-                    <div class="curr-meta">${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h ${closed?'· Closed':''}</div>
+                    <div class="curr-meta">${fmtDateTimeStr(r[1],r[16])} · ${esc(r[2]||'0')}h ${closed?'· Closed':''}</div>
                     ${r[9]?`<div class="muted text-small mt-4" style="font-size:12px">${esc(r[9]).slice(0,100)}</div>`:''}
                 </div>`;
             }).join('')

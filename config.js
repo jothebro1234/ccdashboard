@@ -17,6 +17,7 @@ const CONFIG = {
     // ── Portal: New Sheet Names ─────────────────────────────────
     CHAPTERS_SHEET: 'Chapters',
     DIRECTORS_SHEET: 'Directors',
+    DIRECTOR_REQUESTS_SHEET: 'DirectorRequests',
 
     // ── Portal: Auth ──────────────────────────────────────────────
     // 0-based column index in Volunteers sheet that holds the email address.
@@ -57,6 +58,9 @@ const CONFIG = {
         mr:          { title: 'MR',                      track: 'All'          },
         trial:       { title: 'Trial Director',          track: 'All'          },
         chapter_rep: { title: 'Chapter Representative',  track: 'All'          },
+        // "pres" (chapter president) isn't a real entry here — portal.js expands it to
+        // ['doc','doo'] as soon as it's read from the Directors sheet, so a chapter
+        // president automatically gets combined DOC+DOO permissions and visibility.
     },
 
     TRACKS: {

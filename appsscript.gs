@@ -14,37 +14,52 @@
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
  *   O=YMCAFormURL
  *
- * CURRICULUM SHEET columns (A–P):
+ * CURRICULUM SHEET columns (A–Q):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
  *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel  M=ChapterLabel
  *   N=DurationDays(working-period mode)  O=TriggeredAt(when the duration countdown started)
  *   P=PostedAt(creation timestamp — used to sort lists by posted recency)
+ *   Q=Timezone (IANA zone, e.g. "America/New_York" — the zone DueDate/StartDate were set in)
  *
- * EVENTS SHEET columns (A–P):
+ * EVENTS SHEET columns (A–Q):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
  *   G=MaxVolunteers  H=RegisteredList  I=SignupCloseDate  J=Instructions  K=ChapterLabel
  *   L=CardColor  M=CardDeco  N=CardLabel  O=RequiresYMCA
  *   P=PostedAt(creation timestamp — used to sort lists by posted recency)
+ *   Q=Timezone (IANA zone, e.g. "America/New_York" — the zone Date/SignupCloseDate were set in)
  *
  * CHAPTERS SHEET columns (A–L):
  *   A=Email  B=Name  C=School  D=Logo  E=State  F=City
  *   G=PresidentPhoto  H=VicePresident  I=Treasurer  J=Secretary  K=SocialMedia
- *   L=AuthorizedDirectors (comma-separated emails)
+ *   L=AuthorizedDirectors (comma-separated emails — grants those emails chapter-scoped
+ *            director access; also auto-populated when a director request is approved)
  *
  * DIRECTORS SHEET columns (A–C):
  *   A=Email  B=Name  C=Role (e.g. doc, doo, dop, president, cef, vp, sec, tres, cpo, hr, mr, trial;
- *            comma-separated to grant multiple roles, e.g. "doc, doo" for combined DOC+DOO access)
+ *            comma-separated to grant multiple roles, e.g. "doc, doo" for combined DOC+DOO access.
+ *            "pres" is a shorthand alias for a CHAPTER president — the frontend expands it to
+ *            doc+doo combined automatically, so a chapter president shows up with full DOC+DOO
+ *            permissions and visibility without listing both explicitly.)
+ *
+ * DIRECTORREQUESTS SHEET columns (A–K) — chapter presidents request a DOC/DOO for their chapter
+ * here; an org-wide exec (president/cef/vp/sec/tres/cpo) approves or denies from the portal:
+ *   A=RequestId(uuid)  B=RequestedEmail  C=RequestedName  D=RequestedRole(doc/doo)
+ *   E=RequestedByEmail  F=RequestedByName  G=ChapterSchool  H=Status(pending/approved/denied)
+ *   I=RequestedAt  J=DecidedAt  K=DecidedBy
+ *   On approval: the email is added/merged into the Directors sheet with the requested role,
+ *   and appended to the matching Chapters!AuthorizedDirectors so they're scoped to that chapter.
  */
 
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 
 /* Sheet name constants */
-const SHEET_VOLUNTEERS  = 'Volunteers';
-const SHEET_CURRICULUM  = 'Curriculum';
-const SHEET_EVENTS      = 'Events';
-const SHEET_CHAPTERS    = 'Chapters';
-const SHEET_DIRECTORS   = 'Directors';
+const SHEET_VOLUNTEERS     = 'Volunteers';
+const SHEET_CURRICULUM     = 'Curriculum';
+const SHEET_EVENTS         = 'Events';
+const SHEET_CHAPTERS       = 'Chapters';
+const SHEET_DIRECTORS      = 'Directors';
+const SHEET_DIR_REQUESTS   = 'DirectorRequests';
 
 /* ── Sheet helpers ──────────────────────────────────────────── */
 function getSheet(name) {
@@ -58,10 +73,11 @@ function getSheet(name) {
 
 function initSheetHeaders(sh, name) {
     const headers = {
-        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt'],
-        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt'],
+        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone'],
+        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt','Timezone'],
         Chapters:   ['Email','Name','School','Logo','State','City','PresidentPhoto','VicePresident','Treasurer','Secretary','SocialMedia','AuthorizedDirectors'],
         Directors:  ['Email','Name','Role'],
+        DirectorRequests: ['RequestId','RequestedEmail','RequestedName','RequestedRole','RequestedByEmail','RequestedByName','ChapterSchool','Status','RequestedAt','DecidedAt','DecidedBy'],
     };
     if (headers[name]) sh.appendRow(headers[name]);
 }
@@ -83,7 +99,7 @@ function findOrAddColumn(sh, headerName) {
 /* Fills in any missing header cells for sheets that existed before new columns were added */
 function ensureMissingHeaders(sh, name) {
     if (name === 'Events') {
-        const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt'];
+        const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt','Timezone'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
         expected.forEach(function(col, i) {
@@ -92,7 +108,7 @@ function ensureMissingHeaders(sh, name) {
             }
         });
     } else if (name === 'Curriculum') {
-        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt'];
+        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
         expected.forEach(function(col, i) {
@@ -249,6 +265,10 @@ function route(body) {
         case 'update_tier':            return updateTier(body);
         case 'set_hours_goal':         return setHoursGoal(body);
         case 'upload_ymca_form':       return uploadYMCAForm(body);
+        /* Director requests (chapter president → DOC/DOO grant) */
+        case 'request_director':          return requestDirector(body);
+        case 'approve_director_request':  return approveDirectorRequest(body);
+        case 'deny_director_request':     return denyDirectorRequest(body);
         default:
             throw new Error('Unknown action: ' + body.action);
     }
@@ -275,6 +295,7 @@ function createCurriculum(b) {
         b.durationDays         || '',
         '',   // TriggeredAt — set by registerCurriculum (auto-fill) or startCurriculum (manual)
         new Date(),   // PostedAt — used to sort lists by posted recency
+        b.timezone              || '',
     ]);
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
@@ -302,6 +323,7 @@ function editCurriculum(b) {
     if (f.cardLabel     !== undefined) sh.getRange(rowIdx, 12).setValue(f.cardLabel);
     if (f.chapterLabel  !== undefined) sh.getRange(rowIdx, 13).setValue(f.chapterLabel);
     if (f.durationDays  !== undefined) sh.getRange(rowIdx, 14).setValue(f.durationDays);
+    if (f.timezone      !== undefined) sh.getRange(rowIdx, 17).setValue(f.timezone);
     return 'Updated: ' + b.assignmentName;
 }
 
@@ -461,6 +483,7 @@ function createEvent(b) {
         b.cardLabel       || '',
         b.requiresYMCA    || 'FALSE',
         new Date(),   // PostedAt — used to sort lists by posted recency
+        b.timezone        || '',
     ]);
     return 'Event created: ' + b.eventName;
 }
@@ -490,6 +513,7 @@ function editEvent(b) {
     if (f.cardDeco        !== undefined) sh.getRange(rowIdx, 13).setValue(f.cardDeco);
     if (f.cardLabel       !== undefined) sh.getRange(rowIdx, 14).setValue(f.cardLabel);
     if (f.requiresYMCA    !== undefined) sh.getRange(rowIdx, 15).setValue(f.requiresYMCA);
+    if (f.timezone        !== undefined) sh.getRange(rowIdx, 17).setValue(f.timezone);
     return 'Event updated: ' + b.eventName;
 }
 
@@ -615,6 +639,94 @@ function uploadYMCAForm(b) {
     const ymcaCol = findOrAddColumn(getSheet(SHEET_VOLUNTEERS), 'YMCAFormURL');
     updateCell(SHEET_VOLUNTEERS, found[0], ymcaCol - 1, url);
     return url;
+}
+
+/* ── DIRECTOR REQUESTS (chapter president → DOC/DOO grant) ────── */
+
+function requestDirector(b) {
+    const email = String(b.requestedEmail || '').trim().toLowerCase();
+    if (!email) throw new Error('Requested email is required.');
+    const role = String(b.requestedRole || '').trim().toLowerCase();
+    if (role !== 'doc' && role !== 'doo') throw new Error('Role must be doc or doo.');
+
+    const sh = getSheet(SHEET_DIR_REQUESTS);
+    const id = Utilities.getUuid();
+    sh.appendRow([
+        id,
+        email,
+        b.requestedName || '',
+        role,
+        String(b.byEmail || '').trim().toLowerCase(),
+        b.byName || '',
+        b.chapterSchool || '',
+        'pending',
+        new Date(),
+        '',
+        '',
+    ]);
+    return 'Request submitted for ' + email;
+}
+
+function approveDirectorRequest(b) {
+    const found = findRow(SHEET_DIR_REQUESTS, 0, b.requestId);
+    if (!found) throw new Error('Request not found.');
+    const rowIdx = found[0], rowData = found[1];
+    if (String(rowData[7] || '').trim().toLowerCase() !== 'pending') {
+        throw new Error('This request has already been decided.');
+    }
+    const email          = String(rowData[1] || '').trim().toLowerCase();
+    const requestedName  = String(rowData[2] || '').trim();
+    const role            = String(rowData[3] || '').trim().toLowerCase();
+    const chapterSchool  = String(rowData[6] || '').trim();
+
+    // Grant the role in Directors — merge with any existing roles for that email
+    const dirSh   = getSheet(SHEET_DIRECTORS);
+    const dirFound = findRow(SHEET_DIRECTORS, 0, email);
+    if (dirFound) {
+        const existingRoles = String(dirFound[1][2] || '')
+            .split(/[,/]+/).map(function(x) { return x.trim().toLowerCase(); }).filter(Boolean);
+        if (existingRoles.indexOf(role) < 0) existingRoles.push(role);
+        dirSh.getRange(dirFound[0], 3).setValue(existingRoles.join(', '));
+    } else {
+        dirSh.appendRow([email, requestedName, role]);
+    }
+
+    // Scope them to the requesting chapter via Chapters!AuthorizedDirectors
+    if (chapterSchool) {
+        const chapSh   = getSheet(SHEET_CHAPTERS);
+        const chapData = chapSh.getDataRange().getValues();
+        for (let i = 1; i < chapData.length; i++) {
+            if (String(chapData[i][2] || '').trim().toLowerCase() === chapterSchool.toLowerCase()) {
+                const existing = String(chapData[i][11] || '')
+                    .split(',').map(function(x) { return x.trim().toLowerCase(); }).filter(Boolean);
+                if (existing.indexOf(email) < 0) {
+                    existing.push(email);
+                    chapSh.getRange(i + 1, 12).setValue(existing.join(', '));
+                }
+                break;
+            }
+        }
+    }
+
+    const sh = getSheet(SHEET_DIR_REQUESTS);
+    sh.getRange(rowIdx, 8).setValue('approved');
+    sh.getRange(rowIdx, 10).setValue(new Date());
+    sh.getRange(rowIdx, 11).setValue(b.decidedBy || '');
+    return 'Approved: ' + email + ' → ' + role;
+}
+
+function denyDirectorRequest(b) {
+    const found = findRow(SHEET_DIR_REQUESTS, 0, b.requestId);
+    if (!found) throw new Error('Request not found.');
+    const rowIdx = found[0], rowData = found[1];
+    if (String(rowData[7] || '').trim().toLowerCase() !== 'pending') {
+        throw new Error('This request has already been decided.');
+    }
+    const sh = getSheet(SHEET_DIR_REQUESTS);
+    sh.getRange(rowIdx, 8).setValue('denied');
+    sh.getRange(rowIdx, 10).setValue(new Date());
+    sh.getRange(rowIdx, 11).setValue(b.decidedBy || '');
+    return 'Denied request for ' + rowData[1];
 }
 
 /* ── FORM SUBMIT TRIGGER ────────────────────────────────────── */
