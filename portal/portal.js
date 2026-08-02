@@ -1431,7 +1431,7 @@ function renderUserInfo() {
     const isDir=!!(S.dirRole);
     el.innerHTML=`
         <div class="sb-av">${avHTML(u.name||'?',u.avatar,34)}</div>
-        <div style="min-width:0;flex:1;${isDir?'cursor:pointer':''}" ${isDir?`onclick="_setDirContext();navigate('overview')"`:''}  title="${isDir?'View director overview':''}">
+        <div style="min-width:0;flex:1;${isDir?'cursor:pointer':''}" ${isDir?`onclick="_setDirContext();navigate('dashboard')"`:''}  title="${isDir?'Switch to director view':''}">
             <div class="sb-name">${esc(u.name||'Director')}</div>
             <div class="sb-meta">${(u.track&&u.track!=='All')?`${track.icon||''} ${combinedTrackLabel(u)}`:esc((isDir?getRoleDisplayInfo().title:'')||combinedTrackLabel(u)||'')}</div>
         </div>
@@ -1458,7 +1458,6 @@ function navigate(view,sub) {
         case 'curriculum':  viewActivities();break; // alias for backward compat
         case 'leaderboard': viewLeaderboard();break;
         case 'director':    viewDirectorPanel(sub||'post-event');break;
-        case 'overview':    viewDirectorOverview();break;
         case 'chapter':     viewMyChapter();break;
         case 'calendar':    viewCalendar();break;
         default:viewDashboard();
@@ -1581,7 +1580,7 @@ async function saveHoursGoal(goal,closeFn) {
    VIEW: DASHBOARD
    ═══════════════════════════════════════════════════════════════ */
 function viewDashboard() {
-    if(S.role!=='volunteer'&&S.role!=='chapter_rep'){viewDirectorOverview();return;}
+    if(S.role!=='volunteer'&&S.role!=='chapter_rep'){viewDirectorPanel(S.subTab||'post-event');return;}
     const root=document.getElementById('view-root');
     const u=S.user||{};
     const track=u.track?(CONFIG.TRACKS[u.track]||{}):{};
@@ -1754,57 +1753,6 @@ function viewDashboard() {
         });
     });
     startCountdownTimers();
-}
-
-function viewDirectorOverview() {
-    const root=document.getElementById('view-root');
-    const roleInfo=getRoleDisplayInfo();
-    const assignments=S.data.curriculum||[];
-    const events=S.data.events||[];
-    const upcomingEvents=S.data.upcomingEvents||[];
-    const vols=S.data.volunteers||[];
-    const openAssignments=sortByRecency(assignments).filter(r=>!isLocked(r[5],r[14])); // newest posted first
-    root.innerHTML=`
-        <div class="view-header">
-            <div>
-                <div class="view-title">Overview 🏠</div>
-                <div class="view-subtitle">${esc(roleInfo.title)} · ${esc(roleInfo.track||'All Tracks')}</div>
-            </div>
-            <div class="view-actions"></div>
-        </div>
-        <div class="card-grid card-grid-3 mb-20">
-            <div class="stat-card">
-                <div class="stat-icon" style="background:var(--blue-g)">👥</div>
-                <div><div class="stat-val">${vols.length}</div><div class="stat-lbl">Volunteers</div></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon" style="background:var(--teal-g)">📚</div>
-                <div><div class="stat-val" style="color:var(--teal)">${assignments.length}</div><div class="stat-lbl">Assignments</div></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon" style="background:var(--violet-g)">🎓</div>
-                <div><div class="stat-val" style="color:var(--violet)">${events.length}</div><div class="stat-lbl">Events Recorded</div></div>
-            </div>
-        </div>
-        <div class="dash-grid">
-            <div>
-                <div class="section-title">OPEN ASSIGNMENTS (${openAssignments.length})</div>
-                ${openAssignments.slice(0,4).map(r=>{
-                    const filled=(r[7]||'').split(',').map(n=>n.trim()).filter(Boolean).length;
-                    const maxVols=parseInt(r[6])||0;
-                    const oa=cardAppearance(r);
-                    const cd=formatCountdown(r[5]);
-                    return `<div class="curr-card ${oa.cls}"${oa.style?` style="${oa.style}"`:''}>${oa.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'')}</div>${oa.badge}</div>`:`<div class="curr-title">${esc(r[0]||'')}</div>`}<div class="curr-meta">${currMetaDateText(r)} · ${filled}/${maxVols} slots${cd?` · ${esc(cd)}`:''}</div></div>`;
-                }).join('')||'<div class="muted text-small">No open assignments.</div>'}
-            </div>
-            <div>
-                <div class="section-title">QUICK ACTIONS</div>
-                <div class="card">
-                    <button class="btn btn-primary btn-full mb-8" onclick="navigate('director')">Open Director Panel →</button>
-                    <button class="btn btn-ghost btn-full" onclick="navigate('leaderboard')">View Leaderboard →</button>
-                </div>
-            </div>
-        </div>`;
 }
 
 /* ═══════════════════════════════════════════════════════════════
