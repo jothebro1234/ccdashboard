@@ -58,20 +58,29 @@
  *   L=AuthorizedDirectors (comma-separated emails — grants those emails chapter-scoped
  *            director access; also auto-populated when a director request is approved)
  *
- * DIRECTORS SHEET columns (A–C):
- *   A=Email  B=Name  C=Role (e.g. doc, doo, dop, president, cef, vp, sec, tres, cpo, hr, mr, trial;
- *            comma-separated to grant multiple roles, e.g. "doc, doo" for combined DOC+DOO access.
- *            "pres" is a shorthand alias for a CHAPTER president — the frontend expands it to
- *            doc+doo combined automatically, so a chapter president shows up with full DOC+DOO
- *            permissions and visibility without listing both explicitly.)
+ * DIRECTORS SHEET columns (A–D):
+ *   A=Email  B=Name
+ *   C=Tier — exactly ONE access tier per person, one of:
+ *            exec      → everything, including approving director requests.
+ *            head      → same as director for now (kept separate for future differentiation).
+ *            director  → full combined curriculum+operations permissions (post/give-hours for
+ *                         both assignments and events — there's no more separate DOC vs DOO).
+ *            pres      → chapter president: same combined permissions as director, PLUS the
+ *                         special ability to request a director be granted for their chapter.
+ *            Legacy pre-migration values (doc, doo, dop, president, cef, vp, sec, tres, cpo,
+ *            hr, mr, trial) are still accepted and mapped forward automatically by the
+ *            frontend (portal.js LEGACY_TIER_MAP) — no manual re-typing of old rows needed.
+ *   D=Title — free-text display title (e.g. "Director of Curriculum", "VP of Engagement",
+ *            "Chapter President — Lincoln High"). Display only; has no effect on permissions.
  *
- * DIRECTORREQUESTS SHEET columns (A–K) — chapter presidents request a DOC/DOO for their chapter
- * here; an org-wide exec (president/cef/vp/sec/tres/cpo) approves or denies from the portal:
- *   A=RequestId(uuid)  B=RequestedEmail  C=RequestedName  D=RequestedRole(doc/doo)
+ * DIRECTORREQUESTS SHEET columns (A–K) — chapter presidents request a director be granted for
+ * their chapter here; an org-wide exec approves or denies from the portal:
+ *   A=RequestId(uuid)  B=RequestedEmail  C=RequestedName  D=RequestedTitle(free text)
  *   E=RequestedByEmail  F=RequestedByName  G=ChapterSchool  H=Status(pending/approved/denied)
  *   I=RequestedAt  J=DecidedAt  K=DecidedBy
- *   On approval: the email is added/merged into the Directors sheet with the requested role,
- *   and appended to the matching Chapters!AuthorizedDirectors so they're scoped to that chapter.
+ *   On approval: the email is added/merged into the Directors sheet as tier "director" (never
+ *   downgrading someone who already has more access) with the requested title in col D, and
+ *   appended to the matching Chapters!AuthorizedDirectors so they're scoped to that chapter.
  */
 
 const SS = SpreadsheetApp.getActiveSpreadsheet();
@@ -99,8 +108,8 @@ function initSheetHeaders(sh, name) {
         Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone'],
         Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt','Timezone'],
         Chapters:   ['Email','Name','School','Logo','State','City','PresidentPhoto','VicePresident','Treasurer','Secretary','SocialMedia','AuthorizedDirectors'],
-        Directors:  ['Email','Name','Role'],
-        DirectorRequests: ['RequestId','RequestedEmail','RequestedName','RequestedRole','RequestedByEmail','RequestedByName','ChapterSchool','Status','RequestedAt','DecidedAt','DecidedBy'],
+        Directors:  ['Email','Name','Tier','Title'],
+        DirectorRequests: ['RequestId','RequestedEmail','RequestedName','RequestedTitle','RequestedByEmail','RequestedByName','ChapterSchool','Status','RequestedAt','DecidedAt','DecidedBy'],
     };
     if (headers[name]) sh.appendRow(headers[name]);
 }
@@ -142,6 +151,8 @@ function ensureMissingHeaders(sh, name) {
     } else if (name === 'Volunteers') {
         findOrAddColumn(sh, 'YMCAFormURL');
         findOrAddColumn(sh, 'Timezone');
+    } else if (name === 'Directors') {
+        findOrAddColumn(sh, 'Title'); // col D — free-text title, added alongside the existing Email/Name/Tier
     }
 }
 
@@ -220,6 +231,7 @@ function doPost(e) {
         ensureMissingHeaders(getSheet(SHEET_EVENTS),     'Events');
         ensureMissingHeaders(getSheet(SHEET_VOLUNTEERS), 'Volunteers');
         ensureMissingHeaders(getSheet(SHEET_CURRICULUM), 'Curriculum');
+        ensureMissingHeaders(getSheet(SHEET_DIRECTORS),  'Directors');
         const body   = JSON.parse(e.postData.contents);
         const result = route(body);
         return ContentService.createTextOutput(JSON.stringify({ ok: true, result }))
@@ -715,8 +727,8 @@ function uploadYMCAForm(b) {
 function requestDirector(b) {
     const email = String(b.requestedEmail || '').trim().toLowerCase();
     if (!email) throw new Error('Requested email is required.');
-    const role = String(b.requestedRole || '').trim().toLowerCase();
-    if (role !== 'doc' && role !== 'doo') throw new Error('Role must be doc or doo.');
+    const title = String(b.requestedTitle || '').trim();
+    if (!title) throw new Error('A title is required.');
 
     const sh = getSheet(SHEET_DIR_REQUESTS);
     const id = Utilities.getUuid();
@@ -724,7 +736,7 @@ function requestDirector(b) {
         id,
         email,
         b.requestedName || '',
-        role,
+        title,
         String(b.byEmail || '').trim().toLowerCase(),
         b.byName || '',
         b.chapterSchool || '',
@@ -745,19 +757,24 @@ function approveDirectorRequest(b) {
     }
     const email          = String(rowData[1] || '').trim().toLowerCase();
     const requestedName  = String(rowData[2] || '').trim();
-    const role            = String(rowData[3] || '').trim().toLowerCase();
+    const title           = String(rowData[3] || '').trim();
     const chapterSchool  = String(rowData[6] || '').trim();
 
-    // Grant the role in Directors — merge with any existing roles for that email
+    // Grant "director" tier — never downgrade someone who already has more access (exec/head).
+    // Only fill in the title if they don't already have one, so an existing custom title sticks.
     const dirSh   = getSheet(SHEET_DIRECTORS);
+    ensureMissingHeaders(dirSh, 'Directors');
     const dirFound = findRow(SHEET_DIRECTORS, 0, email);
     if (dirFound) {
-        const existingRoles = String(dirFound[1][2] || '')
-            .split(/[,/]+/).map(function(x) { return x.trim().toLowerCase(); }).filter(Boolean);
-        if (existingRoles.indexOf(role) < 0) existingRoles.push(role);
-        dirSh.getRange(dirFound[0], 3).setValue(existingRoles.join(', '));
+        const existingTier = String(dirFound[1][2] || '').trim().toLowerCase();
+        if (existingTier !== 'exec' && existingTier !== 'head') {
+            dirSh.getRange(dirFound[0], 3).setValue('director');
+        }
+        if (title && !String(dirFound[1][3] || '').trim()) {
+            dirSh.getRange(dirFound[0], 4).setValue(title);
+        }
     } else {
-        dirSh.appendRow([email, requestedName, role]);
+        dirSh.appendRow([email, requestedName, 'director', title]);
     }
 
     // Scope them to the requesting chapter via Chapters!AuthorizedDirectors
@@ -781,7 +798,7 @@ function approveDirectorRequest(b) {
     sh.getRange(rowIdx, 8).setValue('approved');
     sh.getRange(rowIdx, 10).setValue(new Date());
     sh.getRange(rowIdx, 11).setValue(b.decidedBy || '');
-    return 'Approved: ' + email + ' → ' + role;
+    return 'Approved: ' + email + ' → director (' + title + ')';
 }
 
 function denyDirectorRequest(b) {

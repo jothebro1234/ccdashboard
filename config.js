@@ -43,30 +43,24 @@ const CONFIG = {
     GOOGLE_CLIENT_ID: '1009212045762-e6kcfjh3iva58bclegmqb1eq3oea6iso.apps.googleusercontent.com',
 
     // ── Org Structure ─────────────────────────────────────────────
+    // Directors sheet col C holds exactly one of these tier keys per person (legacy values
+    // like doc/doo/president/etc. are mapped forward automatically in portal.js — see
+    // LEGACY_TIER_MAP). Col D holds their free-text title (e.g. "Director of Curriculum"),
+    // which is what's actually shown in the portal — the entries below are just the
+    // generic fallback label used when col D is left blank.
     PRESIDENT_NAME: 'Jumbo Jo',
     DIRECTORS: {
-        doc:         { title: 'Director of Curriculum',  track: 'Curriculum'   },
-        doo:         { title: 'Director of Operations',  track: 'Operations'   },
-        dop:         { title: 'Director of Publicity',   track: 'Media/Design' },
-        president:   { title: 'President',               track: 'All'          },
-        cef:         { title: 'Chief Executive Fellow',  track: 'All'          },
-        vp:          { title: 'Vice President',          track: 'All'          },
-        sec:         { title: 'Secretary',               track: 'All'          },
-        tres:        { title: 'Treasurer',               track: 'All'          },
-        cpo:         { title: 'Chief Product Officer',   track: 'All'          },
-        hr:          { title: 'Human Resources',         track: 'All'          },
-        mr:          { title: 'MR',                      track: 'All'          },
-        trial:       { title: 'Trial Director',          track: 'All'          },
-        chapter_rep: { title: 'Chapter Representative',  track: 'All'          },
-        // "pres" (chapter president) isn't a real entry here — portal.js expands it to
-        // ['doc','doo'] as soon as it's read from the Directors sheet, so a chapter
-        // president automatically gets combined DOC+DOO permissions and visibility.
+        exec:        { title: 'Executive',               track: 'All' }, // everything, incl. approving director requests
+        head:        { title: 'Department Head',         track: 'All' }, // same as director for now
+        director:    { title: 'Director',                track: 'All' }, // combined curriculum + operations permissions
+        pres:        { title: 'Chapter President',       track: 'All' }, // director permissions + can request chapter directors
+        chapter_rep: { title: 'Chapter Representative',  track: 'All' },
     },
 
     TRACKS: {
-        'Curriculum': { color: '#14b8a6', glow: 'rgba(20,184,166,.25)', icon: '\uD83D\uDCDA', role: 'doc', cls: 'teal' },
-        'Operations': { color: '#8b5cf6', glow: 'rgba(139,92,246,.25)', icon: '\uD83C\uDF93', role: 'doo', cls: 'violet' },
-        'Media/Design': { color: '#f87171', glow: 'rgba(248,113,113,.25)', icon: '\uD83C\uDFA8', role: 'dop', cls: 'media-design' },
+        'Curriculum': { color: '#14b8a6', glow: 'rgba(20,184,166,.25)', icon: '\uD83D\uDCDA', cls: 'teal' },
+        'Operations': { color: '#8b5cf6', glow: 'rgba(139,92,246,.25)', icon: '\uD83C\uDF93', cls: 'violet' },
+        'Media/Design': { color: '#f87171', glow: 'rgba(248,113,113,.25)', icon: '\uD83C\uDFA8', cls: 'media-design' },
     },
 
     TIERS: {

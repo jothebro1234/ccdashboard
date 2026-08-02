@@ -76,39 +76,53 @@ function dirChapterFilterItems(items,type){
     });
 }
 
-/* ── Role helpers ─────────────────────────────────────────── */
-const EXEC_ROLES=['president','cef','vp','sec','tres','cpo'];
-// Directors sheet col C may hold multiple roles for one person, e.g. "doc, doo" — split on comma/slash.
-// "pres" (chapter president) is a shorthand alias that always expands to doc+doo combined,
-// so a chapter president gets full DOC+DOO permissions/visibility without listing both.
-function parseRoleList(s){
-    const raw=String(s||'').split(/[,/]+/).map(x=>x.trim().toLowerCase()).filter(Boolean);
-    const out=new Set();
-    raw.forEach(x=>{if(x==='pres'){out.add('doc');out.add('doo');}else out.add(x);});
-    return[...out];
+/* ── Role helpers ─────────────────────────────────────────────
+   Directors sheet col C now holds exactly ONE access tier per person: exec / head / director /
+   pres. Col D holds their free-text title (e.g. "Director of Curriculum", "VP of Engagement",
+   "Chapter President — Lincoln High") — display-only, no permission meaning.
+     exec:     everything, including approving director requests.
+     head:     same as director for now (kept as a separate tier for future differentiation).
+     director: full combined DOC+DOO capabilities (post/give-hours for both curriculum & events).
+     pres:     chapter president — same combined capabilities as director, PLUS the special
+               ability to request a DOC/DOO be granted for their own chapter.
+   Legacy pre-migration values (doc/doo/dop/president/cef/vp/sec/tres/cpo/hr/mr/trial) are mapped
+   forward automatically so existing sheet rows keep working without a manual data migration. */
+const LEGACY_TIER_MAP={
+    doc:'director', doo:'director', dop:'director', mr:'director', trial:'director',
+    president:'exec', cef:'exec', vp:'exec', sec:'exec', tres:'exec', cpo:'exec', hr:'exec',
+};
+const ACCESS_TIERS=['exec','head','director','pres'];
+function parseAccessTier(raw){
+    const s=String(raw||'').trim().toLowerCase();
+    if(ACCESS_TIERS.includes(s))return s;
+    if(LEGACY_TIER_MAP[s])return LEGACY_TIER_MAP[s];
+    return'director';
 }
+// Directors sheet col C holds one tier per person now — this always returns a single-element
+// array, kept as an array purely so every existing `.includes(...)`-style call site below and
+// `toRoleArr` still work unchanged.
+function parseRoleList(s){return[parseAccessTier(s)];}
 function toRoleArr(r){return Array.isArray(r)?r:parseRoleList(r);}
-function isExecRole(r){return toRoleArr(r).some(x=>EXEC_ROLES.includes(x));}
-function canPostAssignment(r){return toRoleArr(r).some(x=>['doc','chapter_rep',...EXEC_ROLES].includes(x));}
-function canPostEvent(r){return toRoleArr(r).some(x=>['doo','chapter_rep',...EXEC_ROLES].includes(x));}
-function canGiveHoursAssign(r){return toRoleArr(r).some(x=>['doc','chapter_rep',...EXEC_ROLES].includes(x));}
-function canGiveHoursEvent(r){return toRoleArr(r).some(x=>['doo','chapter_rep',...EXEC_ROLES].includes(x));}
-function canManageTiersRole(r){return toRoleArr(r).some(x=>['hr',...EXEC_ROLES].includes(x));}
-function canRecordAdHoc(r){return toRoleArr(r).some(x=>['doo','chapter_rep',...EXEC_ROLES].includes(x));}
-// Chapter presidents (either signed in via the Chapters sheet, or a "pres"-role director) can
+function isExecRole(r){return toRoleArr(r).some(x=>x==='exec');}
+const DIRECTOR_TIER_ROLES=['exec','head','director','pres','chapter_rep'];
+function canPostAssignment(r){return toRoleArr(r).some(x=>DIRECTOR_TIER_ROLES.includes(x));}
+function canPostEvent(r){return toRoleArr(r).some(x=>DIRECTOR_TIER_ROLES.includes(x));}
+function canGiveHoursAssign(r){return toRoleArr(r).some(x=>DIRECTOR_TIER_ROLES.includes(x));}
+function canGiveHoursEvent(r){return toRoleArr(r).some(x=>DIRECTOR_TIER_ROLES.includes(x));}
+function canRecordAdHoc(r){return toRoleArr(r).some(x=>DIRECTOR_TIER_ROLES.includes(x));}
+function canManageTiersRole(r){return isExecRole(r);}
+// Chapter presidents (either signed in via the Chapters sheet, or a "pres"-tier director) can
 // request a DOC/DOO be granted for their chapter. Org execs review and approve/deny the request.
 function canRequestDirector(){return S.role==='chapter_rep'||S.isChapterPres||isChapterScopedDirector();}
 function canApproveDirectorRequests(r){return isExecRole(r);}
-function roleLabel(r){const m={doc:'DOC',doo:'DOO',dop:'DOP',president:'Pres',cef:'CEF',vp:'VP',sec:'Sec',tres:'Tres',cpo:'CPO',hr:'HR',mr:'MR',chapter_rep:'ChapRep',trial:'Trial'};return toRoleArr(r).map(x=>m[x]||x.toUpperCase()).join('/');}
-function getDirTrack(r){if(isExecRole(r)||['hr','mr','trial'].includes(r))return'All';return(CONFIG.DIRECTORS[r]||{}).track||'All';}
-// Combined title/track for a user who may hold multiple director roles (S.roles).
+function roleLabel(r){const m={exec:'Exec',head:'Head',director:'Director',pres:'Pres',chapter_rep:'ChapRep'};return toRoleArr(r).map(x=>m[x]||x.toUpperCase()).join('/');}
+// Every director tier now sees the full roster/every track (no more per-role track split) —
+// title comes straight from the signed-in user's own sheet-provided title (col D) when set,
+// else a generic label for their tier.
 function getRoleDisplayInfo(){
-    const roles=(S.roles&&S.roles.length)?S.roles:[S.role];
-    if(S.isChapterPres)return{title:'Chapter President',track:'All'};
-    if(roles.length<=1){const r=roles[0];return CONFIG.DIRECTORS[r]||{title:roleLabel(r),track:getDirTrack(r)};}
-    const title=roles.map(r=>(CONFIG.DIRECTORS[r]||{}).title||roleLabel(r)).join(' & ');
-    const tracks=[...new Set(roles.map(getDirTrack))];
-    return{title,track:tracks.length===1?tracks[0]:'All'};
+    if(S.role==='chapter_rep')return{title:(CONFIG.DIRECTORS.chapter_rep||{}).title||'Chapter Representative',track:'All'};
+    const fallback=CONFIG.DIRECTORS[S.role]||{title:roleLabel(S.role)};
+    return{title:(S.user&&S.user.title)||fallback.title,track:'All'};
 }
 function isUpcomingEv(r){return!!(r&&r[6]);}
 function getDirRoleForName(name){const n=(name||'').toLowerCase();const d=(S.data.directors||[]).find(r=>(r[1]||'').trim().toLowerCase()===n);if(d)return(d[2]||'').trim().toLowerCase();if((S.data.chapters||[]).some(r=>(r[1]||'').trim().toLowerCase()===n))return'chapter_rep';return null;}
@@ -941,14 +955,13 @@ async function restoreSession(sess) {
                     return;
                 }
                 if(freshDirRow&&S.dirRole){
-                    const freshRoles=parseRoleList(freshDirRow[2]);
-                    if(freshRoles.length){
-                        S.roles=freshRoles;S.dirRoles=freshRoles;
-                        S.role=freshRoles[0];S.dirRole=freshRoles[0];
-                        S.isChapterPres=/\bpres\b/.test((freshDirRow[2]||'').toLowerCase());
-                        if(S.user)S.user.role=freshRoles[0];
-                        if(S._dirUser)S._dirUser.role=freshRoles[0];
-                    }
+                    const freshRoles=parseRoleList(freshDirRow[2]); // always [tier], never empty
+                    S.roles=freshRoles;S.dirRoles=freshRoles;
+                    S.role=freshRoles[0];S.dirRole=freshRoles[0];
+                    S.isChapterPres=freshRoles[0]==='pres';
+                    const freshTitle=(freshDirRow[3]||'').trim();
+                    if(S.user){S.user.role=freshRoles[0];S.user.title=freshTitle;}
+                    if(S._dirUser){S._dirUser.role=freshRoles[0];S._dirUser.title=freshTitle;}
                 }
             }catch(_){
                 // Network error — fail open so users aren't locked out during outages
@@ -1047,16 +1060,16 @@ async function handleGoogleSignIn(credentialResponse) {
 
         // Priority 1: Directors sheet
         if(dirRow){
-            const roles=parseRoleList(dirRow[2])||[];
-            if(!roles.length)roles.push('doc');
+            const roles=parseRoleList(dirRow[2]); // [tier] — exec/head/director/pres (legacy values mapped forward)
             const role=roles[0];
             const dirName=(dirRow[1]||'').trim();
+            const dirTitle=(dirRow[3]||'').trim(); // col D — free-text title, display only
             S.role=role;
             S.roles=roles;
             S.dirRole=role;
             S.dirRoles=roles;
-            S.isChapterPres=/\bpres\b/.test((dirRow[2]||'').toLowerCase());
-            S.user={name:dirName,email,role,track:getRoleDisplayInfo().track,avatar:payload.picture||''};
+            S.isChapterPres=role==='pres';
+            S.user={name:dirName,email,role,title:dirTitle,track:'All',avatar:payload.picture||''};
             S._dirUser=S.user;
             S.volUser=volUser;
             // Check if this director is also authorized for any chapters (col L = index 11)
@@ -1565,22 +1578,16 @@ function viewDashboard() {
         </div>`;
     }).join('');
 
-    // Build director entries from the live sheet, not from hardcoded config names
-    const _seenDirRoles=new Set();
-    const _allDirEntries=[];
-    [u.track,u.additionalTrack].filter(t=>t&&CONFIG.TRACKS[t]).forEach(t=>{
-        const role=(CONFIG.TRACKS[t]||{}).role;
-        if(role&&!_seenDirRoles.has(role)){
-            _seenDirRoles.add(role);
-            const roleMeta=CONFIG.DIRECTORS[role]||{title:roleLabel(role),track:getDirTrack(role)};
-            const names=(S.data.directors||[])
-                .filter(r=>parseRoleList(r[2]).includes(role) && (r[3]||'').trim().toLowerCase()!=='trial')
-                .map(r=>(r[1]||'').trim()).filter(Boolean);
-            if(names.length)_allDirEntries.push({roleMeta,trackCfg:CONFIG.TRACKS[t]||{},names});
-        }
-    });
-    const trackColor=(track.color)||'var(--blue)';
-    const trackColorG=(track.glow)||'rgba(56,189,248,.12)';
+    // Org-wide leadership (exec/head/director tier) from the live sheet — chapter presidents
+    // ('pres' tier) are excluded here since they're chapter-specific, not an org-wide director.
+    const _orgLeaders=(S.data.directors||[])
+        .map(r=>({name:(r[1]||'').trim(),tier:parseAccessTier(r[2]),title:(r[3]||'').trim()}))
+        .filter(d=>d.name&&['exec','head','director'].includes(d.tier)&&!d.title.toLowerCase().includes('trial'));
+    const _tierMeta={
+        exec:     {icon:'👑',color:'var(--gold)',   glow:'rgba(251,191,36,.18)',  label:'Executive'},
+        head:     {icon:'🎯',color:'var(--violet)', glow:'rgba(139,92,246,.18)',  label:'Department Head'},
+        director: {icon:'📋',color:'var(--blue)',   glow:'rgba(56,189,248,.18)',  label:'Director'},
+    };
 
     root.innerHTML=`
         <div class="view-header">
@@ -1643,26 +1650,23 @@ function viewDashboard() {
         <div class="dash-directors-section">
             <div class="section-title">YOUR DIRECTORS</div>
             ${(()=>{
-                if(!_allDirEntries.length)return'<div class="card dash-directors-card"><div class="muted text-small">No director assigned.</div></div>';
+                if(!_orgLeaders.length)return'<div class="card dash-directors-card"><div class="muted text-small">No directors listed yet.</div></div>';
                 const volDiscord={};
                 (S.data.allVolunteers||[]).forEach(v=>{if(v.name)volDiscord[v.name.toLowerCase()]=v.discord||'';});
-                const cards=_allDirEntries.flatMap(({roleMeta,trackCfg:tc,names})=>{
-                    const tColor=tc.color||trackColor;
-                    const tGlow=tc.glow||trackColorG;
-                    return names.map(n=>{
-                        const discord=volDiscord[n.toLowerCase()]||'';
-                        return`<div class="card dash-directors-card">
-                            <div class="dash-dir-row">
-                                <div class="dash-dir-icon" style="background:${tGlow};color:${tColor}">${tc.icon||'👤'}</div>
-                                <div>
-                                    <div class="dash-dir-title">${esc(roleMeta.title)}</div>
-                                    <div class="dash-dir-name">${esc(n)}</div>
-                                    ${discord?`<div class="dash-dir-discord">Discord: @${esc(discord)}</div>`:''}
-                                </div>
+                const cards=_orgLeaders.map(d=>{
+                    const tm=_tierMeta[d.tier]||_tierMeta.director;
+                    const discord=volDiscord[d.name.toLowerCase()]||'';
+                    return`<div class="card dash-directors-card">
+                        <div class="dash-dir-row">
+                            <div class="dash-dir-icon" style="background:${tm.glow};color:${tm.color}">${tm.icon}</div>
+                            <div>
+                                <div class="dash-dir-title">${esc(d.title||tm.label)}</div>
+                                <div class="dash-dir-name vol-link" data-vol-link="${esc(d.name)}">${esc(d.name)}</div>
+                                ${discord?`<div class="dash-dir-discord">Discord: @${esc(discord)}</div>`:''}
                             </div>
-                        </div>`;
-                    });
-                }).filter(Boolean).join('');
+                        </div>
+                    </div>`;
+                }).join('');
                 return`<div class="dash-dir-grid">${cards}</div>`;
             })()}
         </div>`;
@@ -2291,7 +2295,7 @@ function viewDirectorPanel(activeTab) {
         ...(canGiveHoursAssign(roles)?[{id:'give-hours',       label:'✅ Give Hours'}]:[]),
         ...(canGiveHoursEvent(roles)? [{id:'give-event-hours', label:'🎓 Give Event Hours'}]:[]),
         {id:'roster', label:'👥 Roster'},
-        ...(canRequestDirector()?           [{id:'request-director', label:'🙋 Request DOC/DOO'}]:[]),
+        ...(canRequestDirector()?           [{id:'request-director', label:'🙋 Request Director'}]:[]),
         ...(canApproveDirectorRequests(roles)?[{id:'director-requests', label:`🗂 Director Requests${pendingReqCount?` (${pendingReqCount})`:''}`}]:[]),
     ];
 
@@ -2395,7 +2399,7 @@ function dirRequestDirectorHTML() {
             <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
                 <div style="min-width:0">
                     <div style="font-weight:700">${esc(r[1]||'')} ${r[2]?`· ${esc(r[2])}`:''}</div>
-                    <div class="muted text-small" style="margin-top:2px">Requested as ${roleLabel(r[3])} · ${esc(fmtDate(r[8]))}</div>
+                    <div class="muted text-small" style="margin-top:2px">Requested as ${esc(r[3]||'Director')} · ${esc(fmtDate(r[8]))}</div>
                 </div>
                 <div style="flex-shrink:0">${reqStatusBadgeHTML(r[7])}</div>
             </div>
@@ -2404,8 +2408,8 @@ function dirRequestDirectorHTML() {
     return `
         <div style="display:grid;grid-template-columns:1fr 1.1fr;gap:20px;align-items:start">
             <div class="card">
-                <div class="card-title">REQUEST A CHAPTER DOC/DOO</div>
-                <div class="form-hint mb-12">Ask an org exec to grant Director of Curriculum or Director of Operations access, scoped to your chapter${chapSchool?` (${esc(chapSchool)})`:''}. They'll review it before it takes effect.</div>
+                <div class="card-title">REQUEST A CHAPTER DIRECTOR</div>
+                <div class="form-hint mb-12">Ask an org exec to grant Director access, scoped to your chapter${chapSchool?` (${esc(chapSchool)})`:''}. They'll review it before it takes effect.</div>
                 <div class="form-grid">
                     <div class="form-group">
                         <label class="form-label">Their Email *</label>
@@ -2416,11 +2420,9 @@ function dirRequestDirectorHTML() {
                         <input class="form-input" id="rd-name" placeholder="Jane Doe">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Grant Which Role? *</label>
-                        <select class="form-input" id="rd-role">
-                            <option value="doc">Director of Curriculum (DOC)</option>
-                            <option value="doo">Director of Operations (DOO)</option>
-                        </select>
+                        <label class="form-label">Their Title *</label>
+                        <input class="form-input" id="rd-title" placeholder="e.g. Director of Curriculum, Director of Operations">
+                        <div class="form-hint">Whatever title fits — the access granted is the same either way (full curriculum + operations permissions for your chapter).</div>
                     </div>
                     <div class="form-err" id="rd-err"></div>
                     <button class="btn btn-primary" id="rd-submit-btn">🙋 Submit Request</button>
@@ -2437,15 +2439,16 @@ function attachRequestDirectorEvents() {
     document.getElementById('rd-submit-btn')?.addEventListener('click',async()=>{
         const requestedEmail=document.getElementById('rd-email').value.trim().toLowerCase();
         const requestedName=document.getElementById('rd-name').value.trim();
-        const requestedRole=document.getElementById('rd-role').value;
+        const requestedTitle=document.getElementById('rd-title').value.trim();
         const err=document.getElementById('rd-err');
         if(!requestedEmail||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requestedEmail)){err.textContent='A valid email is required.';return;}
+        if(!requestedTitle){err.textContent='A title is required.';return;}
         err.textContent='';
         const btn=document.getElementById('rd-submit-btn');
         btn.disabled=true;btn.textContent='Submitting…';
         try {
             await postAction('request_director',{
-                requestedEmail,requestedName,requestedRole,
+                requestedEmail,requestedName,requestedTitle,
                 byEmail:S.user?.email||'',byName:S.user?.name||'',
                 chapterSchool:getMyChapterSchool(),
             });
@@ -2467,7 +2470,7 @@ function dirApproveRequestsHTML() {
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
                 <div style="min-width:0">
                     <div style="font-weight:700">${esc(r[1]||'')} ${r[2]?`· ${esc(r[2])}`:''}</div>
-                    <div class="muted text-small" style="margin-top:2px">Requesting ${roleLabel(r[3])}${r[6]?` for ${esc(r[6])}`:''}</div>
+                    <div class="muted text-small" style="margin-top:2px">Requesting Director access as "${esc(r[3]||'Director')}"${r[6]?` for ${esc(r[6])}`:''}</div>
                     <div class="muted text-small" style="margin-top:2px">Requested by ${esc(r[5]||r[4]||'')} · ${esc(fmtDate(r[8]))}</div>
                 </div>
                 <div style="flex-shrink:0">${reqStatusBadgeHTML(r[7])}</div>
