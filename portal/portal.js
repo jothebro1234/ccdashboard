@@ -392,13 +392,45 @@ function tzAbbrev(tz,date) {
     } catch(_) { return''; }
 }
 // True when a stored value is a real, unambiguous instant — a plain epoch-milliseconds number
-// (as text or number), rather than a naive local wall-clock string typed before timezone
-// support existed. Deliberately NOT a date-shaped string: Google Sheets' gviz CSV export infers
-// a "date" type for columns like DueDate/EventDate and, for any cell it can't represent using
-// that inferred type (which includes force-text cells holding an ISO string), silently returns
-// an EMPTY value instead of the real content — even though the cell itself is correct. A plain
-// number never triggers that inference, so it round-trips reliably.
+// (as text or number) that's already been copied out of its "shadow" column by
+// normalizeCurriculumRows/normalizeEventRows below — rather than a naive local wall-clock
+// string typed before timezone support existed.
 function hasTZInfo(s) { return/^\d{12,}$/.test(String(s||'').trim()); }
+// Curriculum/Events precise instants round-trip through dedicated "shadow" columns
+// (DueInstant/StartInstant/TriggeredInstant, EventInstant/CloseInstant — encoded as text,
+// "E"+the number) instead of the DueDate/StartDate/TriggeredAt or Date/SignupCloseDate columns
+// directly. Reason, confirmed directly against the live sheet: gviz (the engine behind
+// /api/sheet — the ONLY way this app ever reads sheet data) infers a "date" type for those
+// older columns from their header text and years of legacy date values, and silently returns
+// EMPTY in the CSV for any cell it can't represent as a plausible calendar date — including a
+// genuine, correctly-formatted plain NUMBER cell holding an epoch-ms value (it's wildly
+// out-of-range as a spreadsheet date serial). The shadow columns hold the same value in a
+// shape gviz has no basis to treat as a date, so they always survive. These two functions copy
+// each shadow value back into the slot the rest of the app already reads from, immediately
+// after fetching — so every existing display function stays completely unchanged.
+function decodeShadowInstant(s) {
+    const m=String(s||'').trim().match(/^E(\d{12,})$/);
+    return m?m[1]:null;
+}
+function normalizeCurriculumRows(rows) {
+    return rows.map((r,i)=>{
+        if(i===0||!r[0])return r;
+        const out=[...r];
+        const due=decodeShadowInstant(r[17]);   if(due!==null)out[1]=due;
+        const start=decodeShadowInstant(r[18]); if(start!==null)out[5]=start;
+        const trig=decodeShadowInstant(r[19]);  if(trig!==null)out[14]=trig;
+        return out;
+    });
+}
+function normalizeEventRows(rows) {
+    return rows.map((r,i)=>{
+        if(i===0||!r[0])return r;
+        const out=[...r];
+        const ev=decodeShadowInstant(r[17]);    if(ev!==null)out[1]=ev;
+        const close=decodeShadowInstant(r[18]); if(close!==null)out[8]=close;
+        return out;
+    });
+}
 // {year,month,day,hour,minute} of an absolute instant, expressed as wall-clock in the given zone.
 // Falls back to UTC for a garbage/invalid `tz` instead of throwing — a bad stored zone should
 // never take down the whole page, just show a slightly-off time.
@@ -759,8 +791,8 @@ async function postAction(action,payload) {
 
 async function loadVolunteerData(name) {
     const [currRows,evRows,volRows,chapRows,dirRows]=await Promise.all([
-        fetchSheet(CONFIG.CURRICULUM_SHEET_NAME).catch(()=>[]),
-        fetchSheet(CONFIG.EVENTS_SHEET_NAME).catch(()=>[]),
+        fetchSheet(CONFIG.CURRICULUM_SHEET_NAME).then(normalizeCurriculumRows).catch(()=>[]),
+        fetchSheet(CONFIG.EVENTS_SHEET_NAME).then(normalizeEventRows).catch(()=>[]),
         fetchSheet(CONFIG.SHEET_NAME).catch(()=>[]),
         fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
         fetchSheet(CONFIG.DIRECTORS_SHEET||'Directors').catch(()=>[]),
@@ -833,8 +865,8 @@ async function loadVolunteerData(name) {
 async function loadDirectorData(track) {
     const [volRows,currRows,evRows,chapRows,dirRows,dirReqRows]=await Promise.all([
         fetchSheet(CONFIG.SHEET_NAME),
-        fetchSheet(CONFIG.CURRICULUM_SHEET_NAME).catch(()=>[]),
-        fetchSheet(CONFIG.EVENTS_SHEET_NAME).catch(()=>[]),
+        fetchSheet(CONFIG.CURRICULUM_SHEET_NAME).then(normalizeCurriculumRows).catch(()=>[]),
+        fetchSheet(CONFIG.EVENTS_SHEET_NAME).then(normalizeEventRows).catch(()=>[]),
         fetchSheet(CONFIG.CHAPTERS_SHEET||'Chapters').catch(()=>[]),
         fetchSheet(CONFIG.DIRECTORS_SHEET||'Directors').catch(()=>[]),
         fetchSheet(CONFIG.DIRECTOR_REQUESTS_SHEET||'DirectorRequests').catch(()=>[]),
@@ -877,8 +909,8 @@ async function loadLbData() {
     if(S.data.lbReady)return;
     const [volRows,evRows,currRows,exRows]=await Promise.all([
         fetchSheet(CONFIG.SHEET_NAME),
-        fetchSheet(CONFIG.EVENTS_SHEET_NAME),
-        fetchSheet(CONFIG.CURRICULUM_SHEET_NAME),
+        fetchSheet(CONFIG.EVENTS_SHEET_NAME).then(normalizeEventRows),
+        fetchSheet(CONFIG.CURRICULUM_SHEET_NAME).then(normalizeCurriculumRows),
         fetchSheet(CONFIG.EXCEPTIONS_SHEET_NAME).catch(()=>[]),
     ]);
     const exceptions=new Set(exRows.slice(1).map(r=>(r[0]||'').trim().toLowerCase()).filter(Boolean));

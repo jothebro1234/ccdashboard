@@ -26,7 +26,7 @@
  *   who signed up before the form question existed. Every date/time a volunteer sees anywhere
  *   in the portal is converted into this zone — that's the actual per-volunteer auto-conversion.
  *
- * CURRICULUM SHEET columns (A–Q):
+ * CURRICULUM SHEET columns (A–T):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
  *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel  M=ChapterLabel
@@ -34,26 +34,37 @@
  *   P=PostedAt(creation timestamp — used to sort lists by posted recency)
  *   Q=Timezone (IANA zone the assignment was originally posted in — used to redisplay the
  *            edit form in the same zone; NOT used for viewer-side conversion, see below)
+ *   R=DueInstant  S=StartInstant  T=TriggeredInstant — gviz-safe shadow copies, see below.
  *
- * EVENTS SHEET columns (A–Q):
+ * EVENTS SHEET columns (A–S):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
  *   G=MaxVolunteers  H=RegisteredList  I=SignupCloseDate  J=Instructions  K=ChapterLabel
  *   L=CardColor  M=CardDeco  N=CardLabel  O=RequiresYMCA
  *   P=PostedAt(creation timestamp — used to sort lists by posted recency)
  *   Q=Timezone (IANA zone the event was originally posted in — same purpose as Curriculum!Q)
+ *   R=EventInstant  S=CloseInstant — gviz-safe shadow copies, see below.
  *
  * DueDate/StartDate (Curriculum) and Date/SignupCloseDate (Events) are stored as real,
  * unambiguous instants — a plain epoch-milliseconds NUMBER (see setInstantValue/isRealInstant)
  * — computed from whatever wall-clock date/time + timezone the poster picked. NOT an ISO date
- * string: an earlier version stored those, and Sheets' gviz CSV export — which infers a "date"
- * type for these columns — silently returned EMPTY for any cell it couldn't represent that way
- * (a text-formatted ISO string), even though the cell itself was correct. A plain number never
- * triggers that inference and always round-trips correctly. The frontend converts the instant
- * into each individual viewer's own saved timezone (Volunteers!Timezone, or their browser zone
- * as a fallback) for display, and this backend does the same (against the server clock) for
- * lock/deadline enforcement. Rows written before timezone support existed are plain naive
- * "YYYY-MM-DDTHH:MM" strings with no instant meaning — both sides detect that (not a 12+ digit
- * number) and keep treating those literally, unconverted, exactly as before.
+ * string: an earlier version stored those, and Sheets' gviz CSV export (the engine behind
+ * /api/sheet — the ONLY way the frontend ever reads sheet data) infers a "date" type for these
+ * columns from their header text and years of legacy date values, and silently returns EMPTY
+ * in the CSV for any cell it can't represent as a plausible calendar date — confirmed true even
+ * for a genuine, correctly-formatted plain NUMBER cell holding an epoch-ms value (wildly
+ * out-of-range as a spreadsheet date serial). Fixing that required a second write: the DueInstant/
+ * StartInstant/TriggeredInstant/EventInstant/CloseInstant "shadow" columns hold the SAME value
+ * text-encoded as "E"+the number (see setShadowInstant) — a shape gviz has no basis to treat as
+ * a date at all, so it always survives the CSV round-trip intact. The main column is what THIS
+ * BACKEND reads for lock/deadline enforcement (it reads the sheet directly — gviz never enters
+ * into it), so it keeps the plain number; the shadow column exists purely for the frontend,
+ * which copies it back into the slot it already reads from (see normalizeCurriculumRows/
+ * normalizeEventRows in portal.js) before anything else touches the row. The frontend then
+ * converts the instant into each individual viewer's own saved timezone (Volunteers!Timezone,
+ * or their browser zone as a fallback) for display. Rows written before timezone support
+ * existed are plain naive "YYYY-MM-DDTHH:MM" strings with no instant meaning and no shadow
+ * column value — both sides detect that and keep treating those literally, unconverted,
+ * exactly as before.
  *
  * CHAPTERS SHEET columns (A–L):
  *   A=Email  B=Name  C=School  D=Logo  E=State  F=City
@@ -108,8 +119,8 @@ function getSheet(name) {
 
 function initSheetHeaders(sh, name) {
     const headers = {
-        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone'],
-        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt','Timezone'],
+        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone','DueInstant','StartInstant','TriggeredInstant'],
+        Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt','Timezone','EventInstant','CloseInstant'],
         Chapters:   ['Email','Name','School','Logo','State','City','PresidentPhoto','VicePresident','Treasurer','Secretary','SocialMedia','AuthorizedDirectors'],
         Directors:  ['Email','Name','Tier','Title'],
         DirectorRequests: ['RequestId','RequestedEmail','RequestedName','RequestedTitle','RequestedByEmail','RequestedByName','ChapterSchool','Status','RequestedAt','DecidedAt','DecidedBy'],
@@ -134,7 +145,7 @@ function findOrAddColumn(sh, headerName) {
 /* Fills in any missing header cells for sheets that existed before new columns were added */
 function ensureMissingHeaders(sh, name) {
     if (name === 'Events') {
-        const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt','Timezone'];
+        const expected = ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt','Timezone','EventInstant','CloseInstant'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
         expected.forEach(function(col, i) {
@@ -143,7 +154,7 @@ function ensureMissingHeaders(sh, name) {
             }
         });
     } else if (name === 'Curriculum') {
-        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone'];
+        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone','DueInstant','StartInstant','TriggeredInstant'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
         expected.forEach(function(col, i) {
@@ -242,6 +253,26 @@ function setInstantValue(range, value) {
     const n = Number(value);
     if (isNaN(n)) { range.setValue(value); return; }
     range.setNumberFormat('0').setValue(n);
+}
+
+/* Writes a COPY of a real-instant epoch-ms value into a dedicated "shadow" column, encoded as
+   text ("E" + the number) so it can never be mistaken for a date or number by gviz — the
+   engine behind /api/sheet, the ONLY way the frontend ever reads sheet data. gviz infers a
+   "date" type for columns like DueDate/EventDate from their header text and years of legacy
+   date values, and silently returns EMPTY in the CSV for any cell in that column it can't
+   represent as a plausible calendar date — which includes a huge, out-of-range epoch-ms
+   number, even stored as a genuine NUMBER-typed cell (confirmed directly: a freshly-written
+   plain number in DueDate round-tripped to empty via /api/sheet, while the sheet cell itself
+   was correct). The main column (written by setInstantValue above) keeps holding the raw
+   epoch number — that's fine, since backend logic here reads the sheet directly and never
+   goes through gviz. This shadow column exists purely so the FRONTEND has a value gviz will
+   actually deliver intact; the frontend copies it back into the slot it already reads from
+   (see normalizeCurriculumRows/normalizeEventRows in portal.js). */
+function setShadowInstant(range, value) {
+    if (value === '' || value === null || value === undefined) { range.setValue(''); return; }
+    const n = Number(value);
+    if (isNaN(n)) { range.setValue(''); return; }
+    range.setNumberFormat('@').setValue('E' + n);
 }
 
 /* ── doPost ─────────────────────────────────────────────────── */
@@ -386,11 +417,13 @@ function createCurriculum(b) {
         new Date(),   // PostedAt — used to sort lists by posted recency
         b.timezone              || '',
     ]);
-    // Re-set DueDate/StartDate as forced plain text so our ISO-with-Z instants never get
-    // silently reformatted (or reinterpreted in the wrong zone) by Sheets' date auto-detection.
+    // Re-set DueDate/StartDate as a real number, plus write the gviz-safe shadow copies — see
+    // the comment on setShadowInstant for why both are needed.
     const newRow = sh.getLastRow();
     setInstantValue(sh.getRange(newRow, 2), b.dueDate || '');
     setInstantValue(sh.getRange(newRow, 6), b.startDate || '');
+    setShadowInstant(sh.getRange(newRow, 18), b.dueDate || '');
+    setShadowInstant(sh.getRange(newRow, 19), b.startDate || '');
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
 
@@ -406,10 +439,10 @@ function editCurriculum(b) {
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
     const f = b.fields || {};
-    if (f.dueDate       !== undefined) setInstantValue(sh.getRange(rowIdx, 2), f.dueDate);
+    if (f.dueDate       !== undefined) { setInstantValue(sh.getRange(rowIdx, 2), f.dueDate); setShadowInstant(sh.getRange(rowIdx, 18), f.dueDate); }
     if (f.hours         !== undefined) sh.getRange(rowIdx, 3).setValue(f.hours);
     if (f.slidesLink    !== undefined) sh.getRange(rowIdx, 5).setValue(f.slidesLink);
-    if (f.startDate     !== undefined) setInstantValue(sh.getRange(rowIdx, 6), f.startDate);
+    if (f.startDate     !== undefined) { setInstantValue(sh.getRange(rowIdx, 6), f.startDate); setShadowInstant(sh.getRange(rowIdx, 19), f.startDate); }
     if (f.maxVolunteers !== undefined) sh.getRange(rowIdx, 7).setValue(f.maxVolunteers);
     if (f.instructions  !== undefined) sh.getRange(rowIdx, 9).setValue(f.instructions);
     if (f.cardColor     !== undefined) sh.getRange(rowIdx, 10).setValue(f.cardColor);
@@ -459,6 +492,8 @@ function registerCurriculum(b) {
         const due = new Date(now.getTime() + durationDays * 86400000);
         setInstantValue(sh.getRange(rowIdx, 15), now.getTime());
         setInstantValue(sh.getRange(rowIdx, 2), due.getTime());
+        setShadowInstant(sh.getRange(rowIdx, 20), now.getTime());
+        setShadowInstant(sh.getRange(rowIdx, 18), due.getTime());
     }
 
     return 'Registered: ' + b.volunteerName;
@@ -512,6 +547,8 @@ function startCurriculum(b) {
     const due = new Date(now.getTime() + durationDays * 86400000);
     setInstantValue(sh.getRange(rowIdx, 15), now.getTime());
     setInstantValue(sh.getRange(rowIdx, 2), due.getTime());
+    setShadowInstant(sh.getRange(rowIdx, 20), now.getTime());
+    setShadowInstant(sh.getRange(rowIdx, 18), due.getTime());
     return 'Started: ' + b.assignmentName;
 }
 
@@ -575,10 +612,13 @@ function createEvent(b) {
         new Date(),   // PostedAt — used to sort lists by posted recency
         b.timezone        || '',
     ]);
-    // Re-set Date/SignupCloseDate as forced plain text — see comment in createCurriculum.
+    // Re-set Date/SignupCloseDate as a real number, plus write the gviz-safe shadow copies —
+    // see the comment on setShadowInstant for why both are needed.
     const newRow = sh.getLastRow();
     setInstantValue(sh.getRange(newRow, 2), b.eventDate || '');
     setInstantValue(sh.getRange(newRow, 9), b.signupCloseDate || '');
+    setShadowInstant(sh.getRange(newRow, 18), b.eventDate || '');
+    setShadowInstant(sh.getRange(newRow, 19), b.signupCloseDate || '');
     return 'Event created: ' + b.eventName;
 }
 
@@ -595,12 +635,12 @@ function editEvent(b) {
     if (rowIdx < 0) throw new Error('Event not found: ' + b.eventName);
 
     const f = b.fields || {};
-    if (f.eventDate       !== undefined) setInstantValue(sh.getRange(rowIdx, 2), f.eventDate);
+    if (f.eventDate       !== undefined) { setInstantValue(sh.getRange(rowIdx, 2), f.eventDate); setShadowInstant(sh.getRange(rowIdx, 18), f.eventDate); }
     if (f.hours           !== undefined) sh.getRange(rowIdx, 3).setValue(f.hours);
     if (f.isAssembly      !== undefined) sh.getRange(rowIdx, 5).setValue(f.isAssembly);
     if (f.isLeadership    !== undefined) sh.getRange(rowIdx, 6).setValue(f.isLeadership);
     if (f.maxVolunteers   !== undefined) sh.getRange(rowIdx, 7).setValue(f.maxVolunteers);
-    if (f.signupCloseDate !== undefined) setInstantValue(sh.getRange(rowIdx, 9), f.signupCloseDate);
+    if (f.signupCloseDate !== undefined) { setInstantValue(sh.getRange(rowIdx, 9), f.signupCloseDate); setShadowInstant(sh.getRange(rowIdx, 19), f.signupCloseDate); }
     if (f.instructions    !== undefined) sh.getRange(rowIdx, 10).setValue(f.instructions);
     if (f.chapterLabel    !== undefined) sh.getRange(rowIdx, 11).setValue(f.chapterLabel);
     if (f.cardColor       !== undefined) sh.getRange(rowIdx, 12).setValue(f.cardColor);
