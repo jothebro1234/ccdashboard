@@ -1296,6 +1296,7 @@ function renderSidebar() {
         mainItems=[
             {id:'dashboard', icon:'🏠',label:'Dashboard'},
             {id:'activities',icon:'📚',label:'Volunteer Opportunities'},
+            {id:'progress',  icon:'📈',label:'My Progress'},
             {id:'calendar',  icon:'📅',label:'Calendar'},
         ];
         if(isUnified) mainItems.push({id:'director',icon:'⚙️',label:'Director Panel'});
@@ -1307,6 +1308,7 @@ function renderSidebar() {
         mainItems=[
             {id:'dashboard', icon:'🏠',label:'Dashboard'},
             {id:'activities',icon:'📚',label:'Volunteer Opportunities'},
+            {id:'progress',  icon:'📈',label:'My Progress'},
             {id:'director',  icon:'⚙️',label:'Chapter Panel'},
             {id:'calendar',  icon:'📅',label:'Calendar'},
         ];
