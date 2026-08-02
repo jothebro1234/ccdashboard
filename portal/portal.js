@@ -65,13 +65,17 @@ function isChapterScopedDirector(){
 function isChapLabelLocked(){
     return isChapterScopedDirector()&&S.role!=='chapter_rep';
 }
-// Filters director-panel items to only the chapters the current user can manage
+// Filters director-panel items to the chapters the current user can manage, PLUS org-wide
+// items (blank chapter label) — those are visible/manageable by everyone, same as how
+// isEligibleForItem() already treats a blank label as "eligible for everyone" on the
+// volunteer side. Excluding blank-label items here was a bug: volunteers could register for
+// an org-wide event, but a chapter-scoped director could never see it to give hours for it.
 function dirChapterFilterItems(items,type){
     const chapSchools=getMyAuthorizedChapters();
     if(!chapSchools.length)return items;
     return items.filter(r=>{
         const label=getItemChapter(r,type);
-        if(!label)return false;
+        if(!label)return true;
         return chapSchools.some(s=>schoolsMatch(s,label));
     });
 }
