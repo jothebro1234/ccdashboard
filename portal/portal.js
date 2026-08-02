@@ -26,6 +26,7 @@ const VOL_TIMEZONE_COL_IDX=21;
 
 let _othersExpanded = false;
 let _actChapterFilter = 'eligible'; // 'eligible' | 'my_chapter' | 'all'
+let _actTopicFilter = ''; // '' = all topics, else one of CURRICULUM_TOPICS — curriculum only
 
 /* ── School / Chapter helpers ────────────────────────────── */
 function normalizeSchool(s){
@@ -348,6 +349,20 @@ async function doUploadYMCAForm(file,closeFn){
     if(closeFn)closeFn();
     if(S.view==='activities')viewActivities();
     else if(S.view==='dashboard')navigate(S.view);
+}
+/* ── Curriculum science topic ─────────────────────────────── */
+// Curriculum!col U — a single subject-area label DOC/DOO picks when posting an assignment,
+// so volunteers can filter "Volunteer Opportunities" down to the science areas they care about.
+const CURRICULUM_TOPICS=['Engineering','Physics','Chemistry','Biology','Earth Science','Astronomy','General STEM','Health','Medical'];
+function topicSelectHTML(id,selected,includeBlank) {
+    const opts=(includeBlank?['']:[]).concat(CURRICULUM_TOPICS);
+    return`<select class="form-input" id="${id}">${opts.map(t=>`<option value="${esc(t)}"${t===(selected||'')?' selected':''}>${t?esc(t):'No topic'}</option>`).join('')}</select>`;
+}
+// Curriculum row r[20] = Topic — small badge shown alongside the chapter label wherever an
+// assignment card renders.
+function topicBadgeHTML(r) {
+    const t=(r[20]||'').trim();
+    return t?`<span class="topic-label-badge">🔬 ${esc(t)}</span>`:'';
 }
 /* ── Timezone helpers ─────────────────────────────────────── */
 // Curated IANA zones offered on Post/Edit Assignment & Event forms, and on a volunteer's own
@@ -1869,7 +1884,7 @@ function currSimpleRowHTML(r,notEligible=false) {
     return `<div class="curr-simple-row ${done?'done':''} ${notEligible?'chap-only-other':''}" data-name="${esc(name)}" style="cursor:pointer">
         <span class="curr-simple-icon">${notEligible?'🏫':done?'✅':locked?'🔒':'📋'}</span>
         <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="curr-simple-name">${esc(name)}</span>${ap.badge}${chapterLabel&&!notEligible?`<span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span class="curr-simple-name">${esc(name)}</span>${ap.badge}${(r[20]||'').trim()?`<span style="font-size:10px;color:var(--teal)">🔬 ${esc(r[20])}</span>`:''}${chapterLabel&&!notEligible?`<span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
             <div class="curr-simple-meta">${currMetaDateText(r)} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
         </div>
         <span class="curr-simple-badge">${badge}</span>
@@ -1974,7 +1989,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
             <div style="flex:1;min-width:0">
                 <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
                     <div class="curr-title" style="margin-bottom:0">${esc(name)}</div>
-                    ${chapBadge}${ap.badge}
+                    ${topicBadgeHTML(r)}${chapBadge}${ap.badge}
                 </div>
                 <div class="curr-meta" style="margin-top:6px">${currMetaDateHTML(r)}<span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
@@ -2055,6 +2070,7 @@ function showAssignmentDetail(r) {
                 <span class="modal-chip">${dueChipStr}</span>
                 <span class="modal-chip">⏱ ${esc(hours)}h credit</span>
                 <span class="modal-chip">👥 ${regList.length}/${maxVols||'?'} slots</span>
+                ${topicBadgeHTML(r)}
                 ${stateBadge}
             </div>
             ${!done&&!locked&&lockDateStr?`<div class="modal-signup-close">🔔 Signups for this lesson will close on <strong>${lockDateStr}</strong></div>`:''}
@@ -2478,7 +2494,7 @@ function dirPostAssignHTML() {
         return `<div class="curr-card ${da.cls}"${da.style?` style="${da.style}"`:''}">
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
-                    ${da.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'')}</div>${da.badge}</div>`:`<div class="curr-title">${esc(r[0]||'')}</div>`}
+                    <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'')}</div>${topicBadgeHTML(r)}${da.badge}</div>
                     <div class="curr-meta">${currMetaDateText(r)} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
                 </div>
                 <div style="flex-shrink:0">${statusBadge}</div>
@@ -2562,6 +2578,10 @@ function dirPostAssignHTML() {
                     </div>
                     ${colorDecoPickerHTML('pa-color','pa-deco','pa-color-row','pa-deco-row','','')}
                     <div class="form-group">
+                        <label class="form-label">Science Topic <span style="font-size:11px;color:var(--textm);font-weight:600">(lets volunteers filter by subject)</span></label>
+                        ${topicSelectHTML('pa-topic','',true)}
+                    </div>
+                    <div class="form-group">
                         <label class="form-label">Custom Label <span style="font-size:11px;color:var(--textm);font-weight:600">(badge shown on card — optional)</span></label>
                         <input class="form-input" id="pa-label" placeholder="e.g. Urgent, Bonus, Week 3, Special">
                     </div>
@@ -2611,6 +2631,7 @@ function attachPostAssignEvents() {
         const cardLabel=document.getElementById('pa-label').value.trim();
         const chapterLabel=document.getElementById('pa-chapter').value.trim();
         const timezone=document.getElementById('pa-tz').value;
+        const topic=document.getElementById('pa-topic').value;
         const err=document.getElementById('pa-err');
         if(!name||!hours||!max||!instructions){err.textContent='All fields including instructions are required.';return;}
         if(!durationMode&&(!due||!start)){err.textContent='Due date and registration lock date are required.';return;}
@@ -2625,7 +2646,7 @@ function attachPostAssignEvents() {
                 durationDays:durationMode?durationDays:'',
                 hours,contributors:'',
                 slidesLink:slides,startDate:zonedDateTimeLocalToEpoch(start,timezone),maxVolunteers:max,
-                registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone,
+                registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone,topic,
             });
             toast(`"${name}" posted!`,'success');
             ['pa-name','pa-slides','pa-due','pa-start','pa-start-dur','pa-duration','pa-hours','pa-max','pa-instructions'].forEach(id=>{document.getElementById(id).value='';});
@@ -2754,6 +2775,10 @@ function showEditAssignment(r) {
                     <input class="form-input" id="ed-label" value="${esc(selLabel)}" placeholder="e.g. Urgent, Bonus, Week 3, Special">
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Science Topic</label>
+                    ${topicSelectHTML('ed-topic',r[20]||'',true)}
+                </div>
+                <div class="form-group">
                     <label class="form-label">Chapter Label ${isChapLabelLocked()?'<span style="font-size:11px;color:var(--textm);font-weight:600">(auto-filled)</span>':''}</label>
                     ${buildChapComboHTML('ed-chapter',selChapter||chapSchool)}
                     <div class="form-hint">Leave blank for org-wide. Only chapter members will be able to register.</div>
@@ -2778,13 +2803,14 @@ function showEditAssignment(r) {
         const cardLabel=document.getElementById('ed-label').value.trim();
         const chapterLabel=document.getElementById('ed-chapter').value.trim();
         const timezone=document.getElementById('ed-tz').value;
+        const topic=document.getElementById('ed-topic').value;
         const err=document.getElementById('ed-err');
         if(!due&&!(parseFloat(durationDays)>0)){err.textContent='Provide a due date, or a working-period duration.';return;}
         err.textContent='';
         const btn=document.getElementById('ed-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            const fields={slidesLink:slides,dueDate:zonedDateTimeLocalToEpoch(due,timezone),startDate:zonedDateTimeLocalToEpoch(start,timezone),hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone};
+            const fields={slidesLink:slides,dueDate:zonedDateTimeLocalToEpoch(due,timezone),startDate:zonedDateTimeLocalToEpoch(start,timezone),hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone,topic};
             if(!isDurationTriggered(r))fields.durationDays=durationDays;
             await postAction('edit_curriculum',{assignmentName:name,fields});
             toast(`"${name}" updated!`,'success');
@@ -3094,6 +3120,11 @@ function viewActivities() {
             <button class="act-filter-chip${_actChapterFilter==='eligible'?' active':''}" data-cf="eligible">✅ Eligible</button>
             <button class="act-filter-chip${_actChapterFilter==='my_chapter'?' active':''}" data-cf="my_chapter">🏫 My Chapter</button>
             <button class="act-filter-chip${_actChapterFilter==='all'?' active':''}" data-cf="all">🌐 All</button>
+            <span class="act-filter-label" style="margin-left:10px">Topic:</span>
+            <select class="form-input" id="act-topic-filter" style="max-width:180px;padding:6px 10px;font-size:12px">
+                <option value="">All Topics</option>
+                ${CURRICULUM_TOPICS.map(t=>`<option value="${esc(t)}"${_actTopicFilter===t?' selected':''}>${esc(t)}</option>`).join('')}
+            </select>
         </div>
         <div class="act-split">
             <div id="act-col-events"></div>
@@ -3121,6 +3152,11 @@ function viewActivities() {
             renderActivitiesList(activeTab);
         };
     });
+    document.getElementById('act-topic-filter').onchange=e=>{
+        _actTopicFilter=e.target.value;
+        const activeTab=root.querySelector('#act-tabs .panel-tab.active')?.dataset.tab||'available';
+        renderActivitiesList(activeTab);
+    };
     renderActivitiesList('available');
 }
 
@@ -3181,6 +3217,8 @@ function renderActivitiesList(filter) {
         evNotEligible=new Set(filteredEvs.filter(r=>!isEligibleForItem(r,'event')).map(r=>r[0]));
         currNotEligible=new Set(filteredAssign.filter(r=>!isEligibleForItem(r,'curr')).map(r=>r[0]));
     }
+
+    if(_actTopicFilter)filteredAssign=filteredAssign.filter(r=>(r[20]||'')===_actTopicFilter);
 
     // Events column (left)
     const evHeader=`<div class="act-col-header">📅 Upcoming Events<span class="act-col-count">${filteredEvs.length}</span></div>`;
@@ -4100,11 +4138,16 @@ async function refreshDashboard(){
 async function viewCalendar(){
     const root=document.getElementById('view-root');
     root.innerHTML=`<div class="view-header"><div><div class="view-title">📅 Calendar</div></div></div><div class="cal-loading">Loading calendar…</div>`;
-    let rows=[];
-    try{rows=await fetchSheet(CONFIG.CALENDAR_SHEET||'Calendar');}
+    let rows=[], evRows=[];
+    try{
+        [rows,evRows]=await Promise.all([
+            fetchSheet(CONFIG.CALENDAR_SHEET||'Calendar').catch(()=>[]),
+            fetchSheet(CONFIG.EVENTS_SHEET_NAME).then(normalizeEventRows).catch(()=>[]),
+        ]);
+    }
     catch(e){root.innerHTML+='<div class="card"><p class="muted">Could not load calendar: '+esc(e.message)+'</p></div>';return;}
 
-    // Parse rows: row 0 is header, rest are [Date, Notes]
+    // Parse manual Calendar sheet rows: row 0 is header, rest are [Date, Notes]
     const entries=[];
     rows.slice(1).forEach(r=>{
         const raw=(r[0]||'').trim();if(!raw)return;
@@ -4114,6 +4157,23 @@ async function viewCalendar(){
         else{const p=new Date(raw);if(!isNaN(p))d=p;}
         if(!d||isNaN(d))return;
         entries.push({date:d,notes:(r[1]||'').trim()});
+    });
+
+    // Every posted event shows up here automatically — no manual Calendar-sheet entry needed.
+    // Dates/times are converted into the current viewer's own timezone, same as everywhere else.
+    evRows.slice(1).filter(r=>r[0]).forEach(r=>{
+        const ds=toDateStr(r[1]);
+        if(!ds)return;
+        const d=new Date(ds+'T00:00:00');
+        if(isNaN(d))return;
+        const ts=toTimeStr(r[1]);
+        let timePrefix='';
+        if(ts){
+            const[h,min]=ts.split(':').map(Number);
+            const ampm=h>=12?'PM':'AM';
+            timePrefix=`${h%12||12}:${String(min).padStart(2,'0')} ${ampm} · `;
+        }
+        entries.push({date:d,notes:`🎓 ${timePrefix}${(r[0]||'').trim()}`});
     });
 
     if(!entries.length){

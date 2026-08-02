@@ -27,7 +27,7 @@
  *   per-volunteer auto-conversion. There is no in-portal way to set this anymore; it comes
  *   from the form only.
  *
- * CURRICULUM SHEET columns (A–T):
+ * CURRICULUM SHEET columns (A–U):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
  *   E=SlidesLink  F=StartDate(LockDate)  G=MaxVolunteers  H=RegisteredVolunteers
  *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel  M=ChapterLabel
@@ -36,6 +36,8 @@
  *   Q=Timezone (IANA zone the assignment was originally posted in — used to redisplay the
  *            edit form in the same zone; NOT used for viewer-side conversion, see below)
  *   R=DueInstant  S=StartInstant  T=TriggeredInstant — gviz-safe shadow copies, see below.
+ *   U=Topic — one of the CURRICULUM_TOPICS science-subject labels (portal.js), lets
+ *            volunteers filter "Volunteer Opportunities" by subject area.
  *
  * EVENTS SHEET columns (A–S):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
@@ -120,7 +122,7 @@ function getSheet(name) {
 
 function initSheetHeaders(sh, name) {
     const headers = {
-        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone','DueInstant','StartInstant','TriggeredInstant'],
+        Curriculum: ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone','DueInstant','StartInstant','TriggeredInstant','Topic'],
         Events:     ['EventName','Date','Hours','Attendees','IsAssembly','IsLeadership','MaxVolunteers','RegisteredList','SignupCloseDate','Instructions','ChapterLabel','CardColor','CardDeco','CardLabel','RequiresYMCA','PostedAt','Timezone','EventInstant','CloseInstant'],
         Chapters:   ['Email','Name','School','Logo','State','City','PresidentPhoto','VicePresident','Treasurer','Secretary','SocialMedia','AuthorizedDirectors'],
         Directors:  ['Email','Name','Tier','Title'],
@@ -155,7 +157,7 @@ function ensureMissingHeaders(sh, name) {
             }
         });
     } else if (name === 'Curriculum') {
-        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone','DueInstant','StartInstant','TriggeredInstant'];
+        const expected = ['AssignmentName','DueDate','Hours','Contributors','SlidesLink','StartDate','MaxVolunteers','RegisteredVolunteers','Instructions','CardColor','CardDeco','CardLabel','ChapterLabel','DurationDays','TriggeredAt','PostedAt','Timezone','DueInstant','StartInstant','TriggeredInstant','Topic'];
         const lastCol = Math.max(sh.getLastColumn(), expected.length);
         const current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
         expected.forEach(function(col, i) {
@@ -416,6 +418,8 @@ function createCurriculum(b) {
         '',   // TriggeredAt — set by registerCurriculum (auto-fill) or startCurriculum (manual)
         new Date(),   // PostedAt — used to sort lists by posted recency
         b.timezone              || '',
+        '', '', '', // DueInstant/StartInstant/TriggeredInstant — set below
+        b.topic                 || '',
     ]);
     // Re-set DueDate/StartDate as a real number, plus write the gviz-safe shadow copies — see
     // the comment on setShadowInstant for why both are needed.
@@ -451,6 +455,7 @@ function editCurriculum(b) {
     if (f.chapterLabel  !== undefined) sh.getRange(rowIdx, 13).setValue(f.chapterLabel);
     if (f.durationDays  !== undefined) sh.getRange(rowIdx, 14).setValue(f.durationDays);
     if (f.timezone      !== undefined) sh.getRange(rowIdx, 17).setValue(f.timezone);
+    if (f.topic         !== undefined) sh.getRange(rowIdx, 21).setValue(f.topic);
     return 'Updated: ' + b.assignmentName;
 }
 

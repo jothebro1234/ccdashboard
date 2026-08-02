@@ -1384,6 +1384,7 @@ hr.divider { border: none; border-top: 1.5px solid var(--border); margin: 16px 0
 .ev-tag-assembly   { background:var(--blue-g);color:var(--blue);border:1.5px solid rgba(58,114,190,.22); }
 .ev-tag-leadership { background:var(--gold-g);color:var(--gold);border:1.5px solid rgba(212,150,14,.22); }
 .chapter-label-badge { font-size:11px;font-weight:700;padding:4px 11px;border-radius:100px;background:var(--purple-g);color:var(--purple);border:1.5px solid rgba(128,89,216,.25); }
+.topic-label-badge { font-size:11px;font-weight:700;padding:4px 11px;border-radius:100px;background:var(--teal-g);color:var(--teal);border:1.5px solid rgba(20,184,166,.25); }
 
 /* ─── ROLE BADGE IN SLOT ─────────────────────── */
 .slot-role-badge { font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;background:var(--gold-g);color:var(--gold);margin-left:4px;white-space:nowrap; }
