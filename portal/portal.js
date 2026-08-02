@@ -380,9 +380,30 @@ function isValidTZ(tz) {
 // The zone dates are DISPLAYED/converted into for the current viewer: their saved preference
 // (Volunteers sheet Timezone column, set via the Google Form or the portal) if they have one,
 // else their browser's own zone. This is what makes converted dates "auto-adjust per volunteer."
+// Mirrors appsscript.gs's normalizeTimezone — a safety net for when the sheet's Timezone cell
+// still holds the volunteer's raw Google Form answer text (e.g. "Eastern (ET)") instead of the
+// canonical IANA zone the backend normalizes it to on submit/edit/hourly sweep. Without this,
+// a not-yet-normalized cell silently falls back to the viewer's own browser zone instead of
+// their actual saved preference — wrong with no visible error.
+function normalizeTimezoneText(raw) {
+    const s=String(raw||'').toLowerCase();
+    if(!s)return'';
+    if(s.includes('hawaii'))return'Pacific/Honolulu';
+    if(s.includes('alaska'))return'America/Anchorage';
+    if(s.includes('arizona'))return'America/Phoenix';
+    if(s.includes('pacific')||/\bpt\b/.test(s)||/\bpst\b/.test(s)||/\bpdt\b/.test(s))return'America/Los_Angeles';
+    if(s.includes('mountain')||/\bmt\b/.test(s)||/\bmst\b/.test(s)||/\bmdt\b/.test(s))return'America/Denver';
+    if(s.includes('central')||/\bct\b/.test(s)||/\bcst\b/.test(s)||/\bcdt\b/.test(s))return'America/Chicago';
+    if(s.includes('eastern')||/\bet\b/.test(s)||/\best\b/.test(s)||/\bedt\b/.test(s))return'America/New_York';
+    if(s.includes('utc')||s.includes('gmt'))return'UTC';
+    return'';
+}
 function myTZ() {
     const pref=(S.user&&S.user.timezone)||(S.volUser&&S.volUser.timezone)||'';
-    return isValidTZ(pref)?pref:guessTZ();
+    if(isValidTZ(pref))return pref;
+    const normalized=normalizeTimezoneText(pref);
+    if(isValidTZ(normalized))return normalized;
+    return guessTZ();
 }
 function tzSelectHTML(id,selected) {
     const sel=selected&&TZ_OPTIONS.some(o=>o.v===selected)?selected:guessTZ();
