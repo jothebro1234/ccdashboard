@@ -345,11 +345,20 @@ function guessTZ() {
         return TZ_OPTIONS.some(o=>o.v===z)?z:'America/New_York';
     } catch(_) { return'America/New_York'; }
 }
+// True only for a string Intl actually accepts as a timezone — guards against garbage ending
+// up in a Volunteers/Curriculum/Events "Timezone" cell (a raw form-answer label that slipped
+// past normalization, a manual sheet edit, etc.) ever crashing the whole render tree.
+function isValidTZ(tz) {
+    if(!tz)return false;
+    try { new Intl.DateTimeFormat('en-US',{timeZone:tz}); return true; }
+    catch(_) { return false; }
+}
 // The zone dates are DISPLAYED/converted into for the current viewer: their saved preference
 // (Volunteers sheet Timezone column, set via the Google Form or the portal) if they have one,
 // else their browser's own zone. This is what makes converted dates "auto-adjust per volunteer."
 function myTZ() {
-    return(S.user&&S.user.timezone)||(S.volUser&&S.volUser.timezone)||guessTZ();
+    const pref=(S.user&&S.user.timezone)||(S.volUser&&S.volUser.timezone)||'';
+    return isValidTZ(pref)?pref:guessTZ();
 }
 function tzSelectHTML(id,selected) {
     const sel=selected&&TZ_OPTIONS.some(o=>o.v===selected)?selected:guessTZ();
@@ -368,8 +377,11 @@ function tzAbbrev(tz,date) {
 // or an offset-suffixed string) rather than a naive local wall-clock string typed pre-migration.
 function hasTZInfo(s) { return/Z$|[+-]\d{2}:?\d{2}$/.test(String(s||'').trim()); }
 // {year,month,day,hour,minute} of an absolute instant, expressed as wall-clock in the given zone.
+// Falls back to UTC for a garbage/invalid `tz` instead of throwing — a bad stored zone should
+// never take down the whole page, just show a slightly-off time.
 function zonedParts(date,tz) {
-    const dtf=new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const safeTz=isValidTZ(tz)?tz:'UTC';
+    const dtf=new Intl.DateTimeFormat('en-US',{timeZone:safeTz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
     const p={};
     dtf.formatToParts(date).forEach(x=>{if(x.type!=='literal')p[x.type]=x.value;});
     return p;
@@ -559,6 +571,80 @@ function openModal(html) {
     overlay.addEventListener('click',e=>{if(e.target===overlay)close();});
     overlay.querySelectorAll('.modal-close').forEach(b=>b.addEventListener('click',close));
     return close;
+}
+
+/* ── Volunteer history modal ─────────────────────────────────────
+   Any element anywhere with data-vol-link="Volunteer Name" (leaderboard rows, roster tables,
+   "My Chapter" member lists, registered/credited name chips on assignment & event cards, ...)
+   opens this on click, showing the exact curriculum assignments and events that volunteer has
+   been credited for. One delegated, capture-phase listener handles all of them — capture phase
+   so it fires (and can stop propagation) BEFORE a click reaches an ancestor card's own handler
+   (e.g. a name chip inside an otherwise-clickable assignment card). */
+document.addEventListener('click',e=>{
+    const el=e.target.closest('[data-vol-link]');
+    if(!el)return;
+    e.stopPropagation();
+    e.preventDefault();
+    showVolunteerHistory(el.dataset.volLink);
+},true);
+
+async function showVolunteerHistory(name) {
+    if(!name)return;
+    const close=openModal(`
+        <div class="modal-header">
+            <div class="modal-title">${esc(name)}</div>
+            <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body" style="text-align:center;padding:40px 20px">
+            <span class="spinner"></span>
+        </div>`);
+    if(!S.data.lbReady){
+        try { await loadLbData(); } catch(_) { /* fall through — renders "no activity" below */ }
+    }
+    const overlays=document.querySelectorAll('.modal-overlay');
+    const box=overlays[overlays.length-1]?.querySelector('.modal-box');
+    if(!box)return; // closed before the data finished loading
+    box.innerHTML=volunteerHistoryHTML(name);
+    box.querySelectorAll('.modal-close').forEach(b=>b.addEventListener('click',close));
+}
+
+function volunteerHistoryHTML(name) {
+    const lower=name.trim().toLowerCase();
+    const v=(S.data.lbData||[]).find(x=>x.name.toLowerCase()===lower);
+    const header=`
+        <div class="modal-header">
+            <div class="modal-title">${esc(name)}</div>
+            <button class="modal-close">✕</button>
+        </div>`;
+    if(!v){
+        return`${header}<div class="modal-body"><div class="muted text-small" style="padding:20px 0;text-align:center">No activity on record yet.</div></div>`;
+    }
+    const curr=[...v.curriculumList].reverse(); // newest first, per repo convention
+    const ev=[...v.eventList].reverse();
+    const rowHTML=(item,icon)=>`
+        <div class="curr-simple-row" style="cursor:default">
+            <span class="curr-simple-icon">${icon}</span>
+            <div style="flex:1;min-width:0">
+                <div class="curr-simple-name">${esc(item.name||'Untitled')}</div>
+                <div class="curr-simple-meta">${fmtDate(item.date)} · ${round1(item.hours||0)}h${item.assembly?' · Assembly':''}</div>
+            </div>
+        </div>`;
+    return`${header}
+        <div class="modal-body">
+            <div class="modal-chips">
+                <span class="modal-chip">⏱ ${round1(v.hours)}h total</span>
+                <span class="modal-chip">📋 ${v.curriculum} curriculum</span>
+                <span class="modal-chip">🎓 ${v.events} events</span>
+            </div>
+            <div class="modal-section">
+                <div class="modal-section-title">CURRICULUM (${curr.length})</div>
+                ${curr.length?curr.map(item=>rowHTML(item,'📋')).join(''):'<div class="muted text-small">None yet.</div>'}
+            </div>
+            <div class="modal-section">
+                <div class="modal-section-title">EVENTS (${ev.length})</div>
+                ${ev.length?ev.map(item=>rowHTML(item,'🎓')).join(''):'<div class="muted text-small">None yet.</div>'}
+            </div>
+        </div>`;
 }
 
 /* Live countdown timer — ticks every second, updates all .curr-countdown elements */
@@ -1108,7 +1194,7 @@ function showCinematic() {
         <div class="cin-bg"></div>
         <div class="cin-bg-overlay"></div>
         <div class="cin-content">
-            <img src="../cclogo.png" class="cin-logo-img" alt="CC"
+            <img src="../cclogosmall.png" class="cin-logo-img" alt="CC"
                  style="filter:drop-shadow(0 0 36px ${glow})"
                  onerror="this.outerHTML='<div class=cin-logo style=color:${color};filter:drop-shadow(0 0 30px ${glow})>CC</div>'">
             <div class="cin-welcome">WELCOME BACK</div>
@@ -1804,7 +1890,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
         if(vol){
             const inits=vol.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
             const isYou=vol.toLowerCase()===lowerName;
-            slotItems.push(`<div class="vol-slot ${isYou?'slot-you':'slot-filled'}"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name">${esc(vol)}</span></div>`);
+            slotItems.push(`<div class="vol-slot ${isYou?'slot-you':'slot-filled'}"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name vol-link" data-vol-link="${esc(vol)}">${esc(vol)}</span></div>`);
         } else {
             slotItems.push(`<div class="vol-slot slot-empty"><div class="vol-slot-av"></div><span class="vol-slot-name">Open</span></div>`);
         }
@@ -1815,7 +1901,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
     if(credited.length){
         const cslots=credited.map(n=>{
             const inits=n.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
-            return `<div class="vol-slot slot-credited"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name">${esc(n)}</span></div>`;
+            return `<div class="vol-slot slot-credited"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name vol-link" data-vol-link="${esc(n)}">${esc(n)}</span></div>`;
         }).join('');
         creditedHTML=`<div class="curr-subsection"><div class="curr-subsection-lbl">Hours confirmed</div><div class="slot-grid">${cslots}</div></div>`;
     }
@@ -1963,11 +2049,11 @@ function showAssignmentDetail(r) {
             </div>
             ${regList.length?`<div class="modal-section">
                 <div class="modal-section-title">REGISTERED (${regList.length})</div>
-                <div class="vol-chips">${regList.map(n=>`<span class="vol-chip">${esc(n)}</span>`).join('')}</div>
+                <div class="vol-chips">${regList.map(n=>`<span class="vol-chip vol-link" data-vol-link="${esc(n)}">${esc(n)}</span>`).join('')}</div>
             </div>`:''}
             ${credited.length?`<div class="modal-section">
                 <div class="modal-section-title">HOURS GIVEN TO</div>
-                <div class="vol-chips">${credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('')}</div>
+                <div class="vol-chips">${credited.map(n=>`<span class="vol-chip chip-credited vol-link" data-vol-link="${esc(n)}">${esc(n)}</span>`).join('')}</div>
             </div>`:''}
         </div>`;
     openModal(html);
@@ -2153,7 +2239,7 @@ function renderLbPodium() {
         return `<div class="pod-card p${rank}">
             <div class="pod-rank">#${rank}</div>
             <div class="pod-av">${avHTML(v.name,v.avatar,rank===1?68:56)}</div>
-            <div class="pod-name">${esc(v.name)}</div>
+            <div class="pod-name vol-link" data-vol-link="${esc(v.name)}">${esc(v.name)}</div>
             ${v.discord&&CONFIG.SHOW_DISCORD?`<div class="pod-disc">@${esc(v.discord)}</div>`:''}
             <div class="pod-stat">${fmt(val)}</div>
             <div class="pod-stat-lbl">${lbStatLbl()}</div>
@@ -2167,15 +2253,18 @@ function renderLbList() {
     const rows=document.getElementById('lb-rows');
     if(!rows)return;
     const filtered=q?s.filter(v=>v.name.toLowerCase().includes(q)):s;
-    const rest=filtered.slice(3);
+    // While searching, show every match — the podium above isn't filtered, so slicing off
+    // "the top 3" here would wrongly hide a searched-for volunteer who happens to be the
+    // 1st/2nd/3rd match. Only skip the top 3 when browsing unfiltered (they're on the podium).
+    const rest=q?filtered:filtered.slice(3);
     if(!rest.length){rows.innerHTML=`<div style="padding:32px;text-align:center;color:var(--textm)">${q?'No results':'Everyone is on the podium!'}</div>`;return;}
     rows.innerHTML=rest.map(v=>{
-        const rank=filtered.indexOf(v)+1,val=lbStatVal(v);
+        const rank=s.indexOf(v)+1,val=lbStatVal(v); // true overall rank, not position within the search results
         return `<div class="lb-row">
             <div class="lb-row-rank">${rank}</div>
             <div class="lb-row-av">${avHTML(v.name,v.avatar,36)}</div>
             <div class="lb-row-info">
-                <div class="lb-row-name">${esc(v.name)}</div>
+                <div class="lb-row-name vol-link" data-vol-link="${esc(v.name)}">${esc(v.name)}</div>
                 ${v.discord?`<div class="lb-row-sub">@${esc(v.discord)}</div>`:''}
             </div>
             <div class="lb-row-stat">
@@ -2267,7 +2356,7 @@ function dirRosterHTML() {
             </tr></thead>
             <tbody id="roster-tbody">
                 ${vols.map(v=>`<tr data-name="${esc(v.name.toLowerCase())}">
-                    <td><div class="td-name">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
+                    <td><div class="td-name vol-link" data-vol-link="${esc(v.name)}">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
                     <td>${trackPill(v.track)}</td>
                     <td class="col-r"><span class="td-num">${round1(v.hours)}</span></td>
                     <td class="col-r"><span class="td-num">${v.curricCount}</span></td>
@@ -2784,11 +2873,11 @@ function dirGiveHoursHTML() {
             const dirR=getDirRoleForName(n);
             const roleBadge=dirR?`<span class="slot-role-badge">${roleLabel(dirR)}</span>`:'';
             return `<span class="give-hrs-chip" data-vol="${esc(n)}">
-                ${esc(n)}${disc?' · @'+esc(disc):''}${roleBadge}
+                <span class="vol-link" data-vol-link="${esc(n)}">${esc(n)}${disc?' · @'+esc(disc):''}${roleBadge}</span>
                 <button class="remove-vol-btn" title="Mark as no-show">✕</button>
             </span>`;
         }).join('');
-        const creditedChips=credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('');
+        const creditedChips=credited.map(n=>`<span class="vol-chip chip-credited vol-link" data-vol-link="${esc(n)}">${esc(n)}</span>`).join('');
         return `<div class="curr-card ${locked?'curr-locked':'curr-open'}">
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
@@ -2936,7 +3025,7 @@ function dirManageTiersHTML() {
             <thead><tr><th>Volunteer</th><th>Track</th><th>Current Tier</th><th>Update To</th><th></th></tr></thead>
             <tbody id="mt-tbody">
                 ${vols.map(v=>`<tr data-name="${esc(v.name.toLowerCase())}">
-                    <td><div class="td-name">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
+                    <td><div class="td-name vol-link" data-vol-link="${esc(v.name)}">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
                     <td>${trackPill(v.track)}</td>
                     <td>${tierBadge(v.tier)}</td>
                     <td><select class="form-select mt-tier-sel" data-vol="${esc(v.name)}" style="padding:6px 10px;font-size:12px;max-width:140px">
@@ -3246,7 +3335,7 @@ function evCardHTML(r,lowerName,notEligible=false) {
             const isYou=vol.toLowerCase()===lowerName;
             const dirR=getDirRoleForName(vol);
             const roleBadge=dirR?`<span class="slot-role-badge">${roleLabel(dirR)}</span>`:'';
-            slotItems.push(`<div class="vol-slot ${isYou?'slot-you':'slot-filled'}"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name">${esc(vol)}</span>${roleBadge}</div>`);
+            slotItems.push(`<div class="vol-slot ${isYou?'slot-you':'slot-filled'}"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name vol-link" data-vol-link="${esc(vol)}">${esc(vol)}</span>${roleBadge}</div>`);
         } else {
             slotItems.push(`<div class="vol-slot slot-empty"><div class="vol-slot-av"></div><span class="vol-slot-name">Open</span></div>`);
         }
@@ -3256,7 +3345,7 @@ function evCardHTML(r,lowerName,notEligible=false) {
     if(credited.length){
         const cslots=credited.map(n=>{
             const inits=n.trim().split(/\s+/).map(w=>w[0]||'').slice(0,2).join('').toUpperCase();
-            return `<div class="vol-slot slot-credited"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name">${esc(n)}</span></div>`;
+            return `<div class="vol-slot slot-credited"><div class="vol-slot-av">${inits}</div><span class="vol-slot-name vol-link" data-vol-link="${esc(n)}">${esc(n)}</span></div>`;
         }).join('');
         creditedHTML=`<div class="curr-subsection"><div class="curr-subsection-lbl">Hours confirmed</div><div class="slot-grid">${cslots}</div></div>`;
     }
@@ -3401,11 +3490,11 @@ function showEventDetail(r) {
             </div>`:''}
             ${regList.length?`<div class="modal-section">
                 <div class="modal-section-title">REGISTERED (${regList.length})</div>
-                <div class="vol-chips">${regList.map(n=>`<span class="vol-chip">${esc(n)}</span>`).join('')}</div>
+                <div class="vol-chips">${regList.map(n=>`<span class="vol-chip vol-link" data-vol-link="${esc(n)}">${esc(n)}</span>`).join('')}</div>
             </div>`:''}
             ${credited.length?`<div class="modal-section">
                 <div class="modal-section-title">HOURS GIVEN TO</div>
-                <div class="vol-chips">${credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('')}</div>
+                <div class="vol-chips">${credited.map(n=>`<span class="vol-chip chip-credited vol-link" data-vol-link="${esc(n)}">${esc(n)}</span>`).join('')}</div>
             </div>`:''}
         </div>`;
     const close=openModal(html);
@@ -3797,11 +3886,11 @@ function dirGiveEventHoursHTML() {
             const dirR=getDirRoleForName(n);
             const roleBadge=dirR?`<span class="slot-role-badge">${roleLabel(dirR)}</span>`:'';
             return `<span class="give-hrs-chip" data-vol="${esc(n)}">
-                ${esc(n)}${disc?' · @'+esc(disc):''}${roleBadge}
+                <span class="vol-link" data-vol-link="${esc(n)}">${esc(n)}${disc?' · @'+esc(disc):''}${roleBadge}</span>
                 <button class="remove-vol-btn" title="Mark as no-show">✕</button>
             </span>`;
         }).join('');
-        const creditedChips=credited.map(n=>`<span class="vol-chip chip-credited">${esc(n)}</span>`).join('');
+        const creditedChips=credited.map(n=>`<span class="vol-chip chip-credited vol-link" data-vol-link="${esc(n)}">${esc(n)}</span>`).join('');
         return `<div class="curr-card ev-card">
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
@@ -3917,7 +4006,7 @@ function viewMyChapter() {
             <thead><tr><th>Volunteer</th><th>Track</th></tr></thead>
             <tbody>
                 ${chapMembers.map(v=>`<tr>
-                    <td><div class="td-name">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
+                    <td><div class="td-name vol-link" data-vol-link="${esc(v.name)}">${esc(v.name)}</div>${v.discord?`<div class="td-sub">@${esc(v.discord)}</div>`:''}</td>
                     <td>${trackPill(v.track||'')}</td>
                 </tr>`).join('')||'<tr><td colspan="2" class="muted text-small" style="text-align:center;padding:20px">No members found.</td></tr>'}
             </tbody>
