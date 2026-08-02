@@ -325,28 +325,132 @@ async function doUploadYMCAForm(file,closeFn){
     if(S.view==='activities')viewActivities();
     else if(S.view==='progress'||S.view==='dashboard')navigate(S.view);
 }
-/* Returns today as YYYY-MM-DD in the *local* timezone — avoids UTC midnight parse issues */
-function localToday() {
-    const n=new Date();
-    return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+/* ── Timezone helpers ─────────────────────────────────────── */
+// Curated IANA zones offered on Post/Edit Assignment & Event forms, and on a volunteer's own
+// timezone setting — kept short and unambiguous rather than an exhaustive IANA list.
+const TZ_OPTIONS=[
+    {v:'America/New_York',   l:'Eastern (ET)'},
+    {v:'America/Chicago',    l:'Central (CT)'},
+    {v:'America/Denver',     l:'Mountain (MT)'},
+    {v:'America/Phoenix',    l:'Arizona (no DST)'},
+    {v:'America/Los_Angeles',l:'Pacific (PT)'},
+    {v:'America/Anchorage',  l:'Alaska (AKT)'},
+    {v:'Pacific/Honolulu',   l:'Hawaii (HST)'},
+    {v:'UTC',                l:'UTC'},
+];
+// Best-guess timezone from the current browser, used as a fallback when no saved preference exists.
+function guessTZ() {
+    try {
+        const z=Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return TZ_OPTIONS.some(o=>o.v===z)?z:'America/New_York';
+    } catch(_) { return'America/New_York'; }
 }
-/* Normalize any date value to YYYY-MM-DD string for safe string comparison */
+// The zone dates are DISPLAYED/converted into for the current viewer: their saved preference
+// (Volunteers sheet Timezone column, set via the Google Form or the portal) if they have one,
+// else their browser's own zone. This is what makes converted dates "auto-adjust per volunteer."
+function myTZ() {
+    return(S.user&&S.user.timezone)||(S.volUser&&S.volUser.timezone)||guessTZ();
+}
+function tzSelectHTML(id,selected) {
+    const sel=selected&&TZ_OPTIONS.some(o=>o.v===selected)?selected:guessTZ();
+    return`<select class="form-input" id="${id}">${TZ_OPTIONS.map(o=>`<option value="${o.v}"${o.v===sel?' selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
+}
+// Short zone abbreviation (e.g. "EDT") for a given IANA zone at a given instant — accounts for DST.
+function tzAbbrev(tz,date) {
+    if(!tz)return'';
+    try {
+        const parts=new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(date||new Date());
+        const p=parts.find(x=>x.type==='timeZoneName');
+        return p?p.value:'';
+    } catch(_) { return''; }
+}
+// True when a stored value is a real, unambiguous instant (our own converted ISO-with-Z output,
+// or an offset-suffixed string) rather than a naive local wall-clock string typed pre-migration.
+function hasTZInfo(s) { return/Z$|[+-]\d{2}:?\d{2}$/.test(String(s||'').trim()); }
+// {year,month,day,hour,minute} of an absolute instant, expressed as wall-clock in the given zone.
+function zonedParts(date,tz) {
+    const dtf=new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const p={};
+    dtf.formatToParts(date).forEach(x=>{if(x.type!=='literal')p[x.type]=x.value;});
+    return p;
+}
+// Offset (ms) to ADD to a UTC instant to get the wall-clock instant in `tz`, at that instant.
+function tzOffsetMs(instantMs,tz) {
+    const p=zonedParts(new Date(instantMs),tz);
+    const asUTC=Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute);
+    return asUTC-instantMs;
+}
+// Converts a wall-clock "YYYY-MM-DDTHH:MM" (as typed into a datetime-local input) AS IF IT WERE
+// in timezone `tz` into the true absolute instant, returned as an ISO string. This is what makes
+// "3pm Pacific" mean the same moment no matter who's viewing it or from where.
+function zonedDateTimeLocalToISO(dtLocal,tz) {
+    if(!dtLocal)return'';
+    const[dateStr,timeStr]=dtLocal.split('T');
+    const[y,mo,d]=dateStr.split('-').map(Number);
+    const[h,mi]=(timeStr||'00:00').split(':').map(Number);
+    const naiveMs=Date.UTC(y,mo-1,d,h,mi,0);
+    let offset=tzOffsetMs(naiveMs,tz);
+    let utcMs=naiveMs-offset;
+    const offset2=tzOffsetMs(utcMs,tz);
+    if(offset2!==offset)utcMs=naiveMs-offset2;
+    return new Date(utcMs).toISOString();
+}
+
+/* Returns today as YYYY-MM-DD in the current viewer's timezone (myTZ()) */
+function localToday() {
+    const p=zonedParts(new Date(),myTZ());
+    return`${p.year}-${p.month}-${p.day}`;
+}
+/* Normalize any date value to YYYY-MM-DD string for safe string comparison. Real instants
+   (hasTZInfo) are converted into the current viewer's timezone first — this is the step that
+   makes a posted date/time auto-adjust to whoever's looking at it. Legacy naive values (typed
+   before timezone support existed) are read literally, exactly as before. */
 function toDateStr(d) {
     if(!d)return'';
     const s=String(d).trim();
-    if(/^\d{4}-\d{2}-\d{2}/.test(s))return s.slice(0,10);
+    if(hasTZInfo(s)){
+        const dt=new Date(s);
+        if(isNaN(dt))return'';
+        const p=zonedParts(dt,myTZ());
+        return`${p.year}-${p.month}-${p.day}`;
+    }
+    if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+    const m=s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if(m)return m[1];
     const p=new Date(s);
     if(isNaN(p))return'';
     return p.getFullYear()+'-'+String(p.getMonth()+1).padStart(2,'0')+'-'+String(p.getDate()).padStart(2,'0');
 }
+/* Extract HH:MM from a datetime value — converted into the viewer's timezone for real instants,
+   read literally (e.g. from "2025-06-15T14:00") for legacy naive values. */
+function toTimeStr(s) {
+    if(!s)return'';
+    const str=String(s).trim();
+    if(hasTZInfo(str)){
+        const dt=new Date(str);
+        if(isNaN(dt))return'';
+        const p=zonedParts(dt,myTZ());
+        return`${p.hour}:${p.minute}`;
+    }
+    const m=str.match(/[T ](\d{2}:\d{2})/);
+    return m?m[1]:'';
+}
 function formatCountdown(startDate) {
     if(!startDate)return'';
-    const sd=toDateStr(startDate);
-    const st=toTimeStr(startDate);
-    if(!sd||sd<localToday())return'Registration locked';
-    const closeStr=st?`${sd}T${st}:00`:`${sd}T23:59:59`;
-    const diff=new Date(closeStr)-new Date();
-    if(diff<=0)return'Closes today';
+    let diff;
+    if(hasTZInfo(startDate)){
+        const target=new Date(startDate);
+        if(isNaN(target))return'';
+        diff=target-new Date();
+        if(diff<=0)return'Registration locked';
+    } else {
+        const sd=toDateStr(startDate);
+        const st=toTimeStr(startDate);
+        if(!sd||sd<localToday())return'Registration locked';
+        const closeStr=st?`${sd}T${st}:00`:`${sd}T23:59:59`;
+        diff=new Date(closeStr)-new Date();
+        if(diff<=0)return'Closes today';
+    }
     const d=Math.floor(diff/86400000);
     const h=Math.floor((diff%86400000)/3600000);
     const m=Math.floor((diff%3600000)/60000);
@@ -356,20 +460,29 @@ function formatCountdown(startDate) {
     if(m>0)return`${m}m ${s}s left`;
     return`${s}s left`;
 }
-/* Lock date is the LAST DAY registration is open; locked from the next day onwards.
+/* Lock date is the LAST DAY registration is open; locked from the next day onwards (legacy
+   naive values), or the exact instant it passes (real, timezone-converted values).
    Also locked immediately once a duration-based assignment has been triggered/started. */
 function isLocked(startDate,triggeredAt) {
     if(triggeredAt)return true;
     if(!startDate)return false;
+    if(hasTZInfo(startDate)){
+        const d=new Date(startDate);
+        return!isNaN(d)&&d.getTime()<Date.now();
+    }
     const sd=toDateStr(startDate);
     return sd!==''&&sd<localToday();
 }
 /* Closed if lock date has passed, the assignment has started, or due date has passed */
 function isClosed(startDate,dueDate,triggeredAt) {
     if(isLocked(startDate,triggeredAt))return true;
+    if(!dueDate)return false;
+    if(hasTZInfo(dueDate)){
+        const d=new Date(dueDate);
+        return!isNaN(d)&&d.getTime()<Date.now();
+    }
     const dd=toDateStr(dueDate);
-    if(dd&&dd<localToday())return true;
-    return false;
+    return!!dd&&dd<localToday();
 }
 /* Curriculum row helpers for the duration-based deadline mode (col N=r[13]/O=r[14]) */
 function curriculumDurationDays(r) { return parseFloat(r[13])||0; }
@@ -389,6 +502,10 @@ function sortByRecency(rows) {
 /* Completed = past due date */
 function isCompleted(dueDate) {
     if(!dueDate)return false;
+    if(hasTZInfo(dueDate)){
+        const d=new Date(dueDate);
+        return!isNaN(d)&&d.getTime()<Date.now();
+    }
     const dd=toDateStr(dueDate);
     return dd!==''&&dd<localToday();
 }
@@ -396,47 +513,9 @@ function localYesterday() {
     const n=new Date();n.setDate(n.getDate()-1);
     return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
 }
-/* Extract HH:MM from a datetime string like "2025-06-15T14:00" or "2025-06-15 14:00" */
-function toTimeStr(s) {
-    if(!s)return'';
-    const m=String(s).match(/[T ](\d{2}:\d{2})/);
-    return m?m[1]:'';
-}
-/* ── Timezone helpers ─────────────────────────────────────── */
-// Curated IANA zones offered on Post/Edit Assignment & Event forms — kept short and
-// unambiguous rather than an exhaustive IANA list. Add more here if chapters expand regions.
-const TZ_OPTIONS=[
-    {v:'America/New_York',   l:'Eastern (ET)'},
-    {v:'America/Chicago',    l:'Central (CT)'},
-    {v:'America/Denver',     l:'Mountain (MT)'},
-    {v:'America/Phoenix',    l:'Arizona (no DST)'},
-    {v:'America/Los_Angeles',l:'Pacific (PT)'},
-    {v:'America/Anchorage',  l:'Alaska (AKT)'},
-    {v:'Pacific/Honolulu',   l:'Hawaii (HST)'},
-    {v:'UTC',                l:'UTC'},
-];
-// Best-guess default timezone for a fresh (non-edit) form, from the poster's own browser.
-function guessTZ() {
-    try {
-        const z=Intl.DateTimeFormat().resolvedOptions().timeZone;
-        return TZ_OPTIONS.some(o=>o.v===z)?z:'America/New_York';
-    } catch(_) { return'America/New_York'; }
-}
-function tzSelectHTML(id,selected) {
-    const sel=selected&&TZ_OPTIONS.some(o=>o.v===selected)?selected:guessTZ();
-    return`<select class="form-input" id="${id}">${TZ_OPTIONS.map(o=>`<option value="${o.v}"${o.v===sel?' selected':''}>${esc(o.l)}</option>`).join('')}</select>`;
-}
-// Short zone abbreviation (e.g. "EDT") for a given IANA zone at a given instant — accounts for DST.
-function tzAbbrev(tz,date) {
-    if(!tz)return'';
-    try {
-        const parts=new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'}).formatToParts(date||new Date());
-        const p=parts.find(x=>x.type==='timeZoneName');
-        return p?p.value:'';
-    } catch(_) { return''; }
-}
-/* Format a stored date/datetime value to human-readable, including time and timezone if present */
-function fmtDateTimeStr(s,tz) {
+/* Format a stored date/datetime value to human-readable, including time and timezone if present.
+   Real instants are shown converted into the current viewer's own timezone (myTZ()). */
+function fmtDateTimeStr(s) {
     if(!s)return'—';
     const ds=toDateStr(s);
     const ts=toTimeStr(s);
@@ -447,12 +526,20 @@ function fmtDateTimeStr(s,tz) {
     const[h,min]=ts.split(':').map(Number);
     const ampm=h>=12?'PM':'AM';
     const hr12=h%12||12;
-    const tzLabel=tz?` ${tzAbbrev(tz,new Date(`${ds}T${ts}:00`))}`.trimEnd():'';
+    const tzLabel=hasTZInfo(s)?` ${tzAbbrev(myTZ(),new Date(s))}`.trimEnd():'';
     return`${dateFmt} at ${hr12}:${String(min).padStart(2,'0')} ${ampm}${tzLabel}`;
 }
-/* Convert stored date/datetime to datetime-local input format */
-function toDateTimeLocal(s) {
+/* Convert stored date/datetime to datetime-local input format. For real instants, `tz` picks
+   which zone to render the wall-clock numbers in (used to redisplay an edit form in the zone
+   it was originally posted in); legacy naive values are read literally as before. */
+function toDateTimeLocal(s,tz) {
     if(!s)return'';
+    if(hasTZInfo(s)){
+        const dt=new Date(s);
+        if(isNaN(dt))return'';
+        const p=zonedParts(dt,tz||guessTZ());
+        return`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+    }
     const ds=toDateStr(s);
     if(!ds)return'';
     const ts=toTimeStr(s);
@@ -602,9 +689,10 @@ async function loadVolunteerData(name) {
     S.data.chapRank=(mySchool&&chapIdx>=0)?chapIdx+1:null;
     S.data.chapTotal=chapVols.length;
 
-    // Load hours goal and YMCA form URL — find YMCAFormURL column by header name
+    // Load hours goal, YMCA form URL, and timezone — find each column by header name
     const volHeaders=(volRows[0]||[]).map(h=>(h||'').trim());
     const ymcaColIdx=volHeaders.indexOf('YMCAFormURL');
+    const tzColIdx=volHeaders.indexOf('Timezone');
     const myVolRow=volRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===lower);
     S.data.hoursGoal=myVolRow?(parseFloat(myVolRow[13])||null):null;
     const ymcaUrl=myVolRow&&ymcaColIdx>=0?(myVolRow[ymcaColIdx]||'').trim():'';
@@ -613,6 +701,8 @@ async function loadVolunteerData(name) {
     const resolvedYmca=ymcaUrl||(S.data.ymcaFormURL||S.user?.ymcaFormURL||'');
     S.data.ymcaFormURL=resolvedYmca;
     if(S.user)S.user.ymcaFormURL=resolvedYmca; // always sync, even if empty
+    const tzVal=myVolRow&&tzColIdx>=0?(myVolRow[tzColIdx]||'').trim():'';
+    if(S.user)S.user.timezone=tzVal||S.user.timezone||'';
 
     S.data.myRegistrations=sortByRecency(S.data.curriculum.filter(r=>{
         const reg=(r[7]||'').split(',').map(n=>n.trim().toLowerCase());
@@ -846,6 +936,7 @@ async function handleGoogleSignIn(credentialResponse) {
         const emailCol=CONFIG.EMAIL_COL??4;
         const volHeaders=(volRows[0]||[]).map(h=>(h||'').trim());
         const ymcaColIdx=volHeaders.indexOf('YMCAFormURL');
+        const tzColIdx=volHeaders.indexOf('Timezone');
         const volRow=volRows.slice(1).find(r=>(r[emailCol]||'').trim().toLowerCase()===email);
         const dirRow=dirRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
         const chapRow=chapRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
@@ -864,6 +955,7 @@ async function handleGoogleSignIn(credentialResponse) {
                 onTimeRate:parseFloat(volRow[10])||null,
                 lastContact:(volRow[11]||'').trim(),
                 ymcaFormURL:ymcaColIdx>=0?(volRow[ymcaColIdx]||'').trim():'',
+                timezone:tzColIdx>=0?(volRow[tzColIdx]||'').trim():'',
             };
         }
 
@@ -1355,8 +1447,8 @@ function viewDashboard() {
             <div style="display:flex;align-items:flex-start;gap:12px">
                 <div style="flex:1;min-width:0">
                     ${deap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Event')}</div>${deap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Event')}</div>`}
-                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate,r[16])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
-                    ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate,r[16])}</div>`:''}
+                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
+                    ${!closed&&closeDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Registration closes ${fmtDateTimeStr(closeDate)}</div>`:''}
                     ${done?`<div class="curr-waiting">⏳ Waiting for hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots</div>`}
                 </div>
                 <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':closed?'<span class="curr-lock-badge">🔒 Closed</span>':`<span class="curr-countdown" data-lockdate="${esc(closeDate)}">${esc(countdown)}</span>`}</div>
@@ -1379,7 +1471,7 @@ function viewDashboard() {
                 <div style="flex:1;min-width:0">
                     ${dap.badge?`<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px"><div class="curr-title" style="margin-bottom:0">${esc(r[0]||'Assignment')}</div>${dap.badge}</div>`:`<div class="curr-title">${esc(r[0]||'Assignment')}</div>`}
                     <div class="curr-meta" style="margin-top:6px">${currMetaDateHTML(r)}<span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(String(r[2]||0))}h credit</span></div>
-                    ${!locked&&startDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Closes ${fmtDateTimeStr(startDate,r[16])}</div>`:''}
+                    ${!locked&&startDate?`<div class="curr-signup-close" style="margin-top:5px">🔔 Closes ${fmtDateTimeStr(startDate)}</div>`:''}
                     ${done?`<div class="curr-waiting">⏳ Waiting for director to confirm hours</div>`:`<div style="font-size:11px;color:var(--textm);margin-top:5px">${filled}/${maxVols||'?'} slots filled</div>`}
                 </div>
                 <div style="flex-shrink:0">${done?'<span class="curr-done-badge">✅ Done</span>':locked?currLockBadgeHTML(r):`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`}</div>
@@ -1637,12 +1729,12 @@ function renderCurrList(filter) {
 function currMetaDateHTML(r) {
     const dur=curriculumDurationDays(r),started=isDurationTriggered(r);
     if(dur>0&&!started)return`<span class="curr-meta-date">🕒 ${dur}-day deadline · starts once full or manually started</span>`;
-    if(dur>0&&started)return`<span class="curr-meta-date">🚀 Started ${fmtDateTimeStr(r[14],r[16])} · Due ${fmtDateTimeStr(r[1],r[16])}</span>`;
-    return`<span class="curr-meta-date">📅 Due ${fmtDateTimeStr(r[1],r[16])}</span>`;
+    if(dur>0&&started)return`<span class="curr-meta-date">🚀 Started ${fmtDateTimeStr(r[14])} · Due ${fmtDateTimeStr(r[1])}</span>`;
+    return`<span class="curr-meta-date">📅 Due ${fmtDateTimeStr(r[1])}</span>`;
 }
 function currMetaDateText(r) {
     if(curriculumDurationDays(r)>0&&!isDurationTriggered(r))return`🕒 ${curriculumDurationDays(r)}-day deadline · not started`;
-    return`Due ${fmtDateTimeStr(r[1],r[16])}`;
+    return`Due ${fmtDateTimeStr(r[1])}`;
 }
 /* Badge for the "registration closed" state — distinguishes an in-progress duration
    assignment (already started, deadline ticking) from a plain past-lock-date closure. */
@@ -1702,7 +1794,7 @@ function currCardHTML(r,lowerName,notEligible=false) {
         :`<span class="curr-countdown" data-lockdate="${esc(startDate)}">${esc(countdown)}</span>`;
 
     const signupCloseHTML=!done&&!locked&&startDate
-        ?`<div class="curr-signup-close">🔔 Signups close <strong>${fmtDateTimeStr(startDate,r[16])}</strong></div>`:'';
+        ?`<div class="curr-signup-close">🔔 Signups close <strong>${fmtDateTimeStr(startDate)}</strong></div>`:'';
 
     // Slot grid: filled names + empty open slots
     const slotsCount=maxVols>0?maxVols:regList.length;
@@ -1836,9 +1928,9 @@ function showAssignmentDetail(r) {
     const instructions=r[8]||'';
     const done=isCompleted(r[1]);
     const locked=isClosed(startDate,r[1],r[14]);
-    const lockDateStr=startDate?fmtDateTimeStr(startDate,r[16]):'';
+    const lockDateStr=startDate?fmtDateTimeStr(startDate):'';
     const dur=curriculumDurationDays(r),started=isDurationTriggered(r);
-    const dueChipStr=(dur>0&&!started)?`🕒 ${dur}-day deadline (not started)`:`📅 Due ${fmtDateTimeStr(r[1],r[16])}`;
+    const dueChipStr=(dur>0&&!started)?`🕒 ${dur}-day deadline (not started)`:`📅 Due ${fmtDateTimeStr(r[1])}`;
 
     let stateBadge='';
     if(done)stateBadge='<span class="curr-done-badge">✅ Completed</span>';
@@ -1926,9 +2018,35 @@ function viewMyProgress() {
                 </div>`
                 :`<button class="btn btn-primary btn-sm" id="ymca-upload-progress-btn">📤 Upload Form</button>`
             }
+        </div>
+        <div class="section-title mt-20">YOUR TIMEZONE</div>
+        <div class="ymca-form-row">
+            <div style="font-size:18px">🌐</div>
+            <div style="flex:1;min-width:0">
+                <div style="font-weight:700;color:var(--text);font-size:13px">Dates &amp; times shown to you are converted to this zone</div>
+                <div style="font-size:11px;color:var(--textm);margin-top:2px">Applies wherever assignment/event dates are shown across the portal</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                ${tzSelectHTML('mytz-select',u.timezone||'')}
+                <button class="btn btn-primary btn-sm" id="mytz-save-btn">Save</button>
+            </div>
         </div>`;
     // Attach Required Forms events
     document.getElementById('ymca-upload-progress-btn')?.addEventListener('click',showYMCAUploadModal);
+    document.getElementById('mytz-save-btn')?.addEventListener('click',async()=>{
+        const btn=document.getElementById('mytz-save-btn');
+        const tz=document.getElementById('mytz-select').value;
+        const volName=u.name;
+        if(!volName)return;
+        btn.disabled=true;btn.textContent='Saving…';
+        try {
+            await postAction('set_timezone',{volunteerName:volName,timezone:tz});
+            if(S.user)S.user.timezone=tz;
+            if(S.volUser)S.volUser.timezone=tz;
+            toast('Timezone saved!','success');
+        } catch(e){toast(e.message,'error');}
+        btn.disabled=false;btn.textContent='Save';
+    });
     document.getElementById('ymca-reupload-btn')?.addEventListener('click',showYMCAUploadModal);
 }
 
@@ -2471,10 +2589,10 @@ function attachPostAssignEvents() {
         try {
             await postAction('create_curriculum',{
                 assignmentName:name,
-                dueDate:durationMode?'':due,
+                dueDate:durationMode?'':zonedDateTimeLocalToISO(due,timezone),
                 durationDays:durationMode?durationDays:'',
                 hours,contributors:'',
-                slidesLink:slides,startDate:start,maxVolunteers:max,
+                slidesLink:slides,startDate:zonedDateTimeLocalToISO(start,timezone),maxVolunteers:max,
                 registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone,
             });
             toast(`"${name}" posted!`,'success');
@@ -2568,11 +2686,11 @@ function showEditAssignment(r) {
                 <div class="form-grid form-grid-2">
                     <div class="form-group">
                         <label class="form-label">Due Date &amp; Time${isDurationTriggered(r)?'':' <span style="font-size:11px;color:var(--textm);font-weight:600">(ignored if duration below is set)</span>'}</label>
-                        <input class="form-input" type="datetime-local" id="ed-due" value="${esc(toDateTimeLocal(r[1]))}">
+                        <input class="form-input" type="datetime-local" id="ed-due" value="${esc(toDateTimeLocal(r[1],r[16]))}">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Registration Lock Date &amp; Time</label>
-                        <input class="form-input" type="datetime-local" id="ed-start" value="${esc(toDateTimeLocal(r[5]))}">
+                        <input class="form-input" type="datetime-local" id="ed-start" value="${esc(toDateTimeLocal(r[5],r[16]))}">
                     </div>
                 </div>
                 <div class="form-group">
@@ -2582,7 +2700,7 @@ function showEditAssignment(r) {
                 <div class="form-group">
                     <label class="form-label">Working Period (days) <span style="font-size:11px;color:var(--textm);font-weight:600">(duration mode — optional)</span></label>
                     <input class="form-input" type="number" id="ed-duration" value="${esc(r[13]||'')}" min="1" step="1"${isDurationTriggered(r)?' disabled':''}>
-                    <div class="form-hint">${isDurationTriggered(r)?`Already started ${esc(fmtDateTimeStr(r[14],r[16]))} — edit the due date directly instead.`:'Leave blank to use the fixed due date above instead. Deadline starts once full or manually started.'}</div>
+                    <div class="form-hint">${isDurationTriggered(r)?`Already started ${esc(fmtDateTimeStr(r[14]))} — edit the due date directly instead.`:'Leave blank to use the fixed due date above instead. Deadline starts once full or manually started.'}</div>
                 </div>
                 <div class="form-grid form-grid-2">
                     <div class="form-group">
@@ -2634,7 +2752,7 @@ function showEditAssignment(r) {
         const btn=document.getElementById('ed-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            const fields={slidesLink:slides,dueDate:due,startDate:start,hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone};
+            const fields={slidesLink:slides,dueDate:zonedDateTimeLocalToISO(due,timezone),startDate:zonedDateTimeLocalToISO(start,timezone),hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone};
             if(!isDurationTriggered(r))fields.durationDays=durationDays;
             await postAction('edit_curriculum',{assignmentName:name,fields});
             toast(`"${name}" updated!`,'success');
@@ -3105,7 +3223,7 @@ function evCardHTML(r,lowerName,notEligible=false) {
         :`<span class="curr-countdown" data-lockdate="${esc(closeDate)}">${esc(countdown)}</span>`;
 
     const signupCloseHTML=!done&&!closed&&closeDate
-        ?`<div class="curr-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate,r[16])}</strong></div>`:'';
+        ?`<div class="curr-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate)}</strong></div>`:'';
 
     const requiresYMCA=isChecked(r[14]);
     const hasYMCAForm=!!(S.user?.ymcaFormURL);
@@ -3153,7 +3271,7 @@ function evCardHTML(r,lowerName,notEligible=false) {
                         <div class="curr-title" style="margin-bottom:0">${esc(name)}</div>
                         <span class="chap-only-badge">🏫 ${esc(chapterLabel)}</span>
                     </div>
-                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate,r[16])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
+                    <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 </div>
                 <div style="flex-shrink:0"><span class="curr-lock-badge">🏫 Chapter only</span></div>
             </div>
@@ -3185,7 +3303,7 @@ function evCardHTML(r,lowerName,notEligible=false) {
                     <div class="curr-title">${esc(name)}</div>
                     ${chapterBadge}${eap.badge}
                 </div>
-                <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate,r[16])}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
+                <div class="curr-meta" style="margin-top:6px"><span class="curr-meta-date">📅 ${fmtDateTimeStr(evDate)}</span><span class="curr-meta-sep">·</span><span class="curr-meta-hours">⏱ ${esc(hours)}h credit</span></div>
                 ${tagsHTML}
                 ${statusBadge?`<div style="margin-top:7px">${statusBadge}</div>`:''}
                 ${signupCloseHTML}
@@ -3218,7 +3336,7 @@ function evSimpleRowHTML(r,notEligible=false) {
         <span class="curr-simple-icon">${notEligible?'🏫':done?'✅':closed?'🔒':'📅'}</span>
         <div style="flex:1;min-width:0">
             <div class="curr-simple-name">${esc(name)}${chapterLabel&&!notEligible?` <span style="font-size:10px;color:var(--purple)">🏫 ${esc(chapterLabel)}</span>`:''}</div>
-            <div class="curr-simple-meta">${fmtDateTimeStr(evDate,r[16])} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
+            <div class="curr-simple-meta">${fmtDateTimeStr(evDate)} · ${esc(hours)}h · ${count} volunteer${count!==1?'s':''}</div>
         </div>
         <span class="curr-simple-badge">${badge}</span>
     </div>`;
@@ -3268,7 +3386,7 @@ function showEventDetail(r) {
         </div>
         <div class="modal-body">
             <div class="modal-chips">
-                <span class="modal-chip">📅 ${fmtDateTimeStr(evDate,r[16])}</span>
+                <span class="modal-chip">📅 ${fmtDateTimeStr(evDate)}</span>
                 <span class="modal-chip">⏱ ${esc(hours)}h credit</span>
                 <span class="modal-chip">👥 ${regList.length}/${maxVols||'?'} slots</span>
                 ${chapterLabel?`<span class="chapter-label-badge">🏫 ${esc(chapterLabel)}</span>`:''}
@@ -3276,7 +3394,7 @@ function showEventDetail(r) {
                 ${stateBadge}
             </div>
             ${ymcaBannerHTML}
-            ${!done&&!closed&&closeDate?`<div class="modal-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate,r[16])}</strong></div>`:''}
+            ${!done&&!closed&&closeDate?`<div class="modal-signup-close">🔔 Registration closes <strong>${fmtDateTimeStr(closeDate)}</strong></div>`:''}
             ${instructions?`<div class="modal-section">
                 <div class="modal-section-title">INSTRUCTIONS</div>
                 <div class="modal-instructions">${esc(instructions).replace(/\n/g,'<br>')}</div>
@@ -3396,7 +3514,7 @@ function dirPostEventHTML() {
                     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                         <div class="curr-title">${esc(r[0]||'')}</div>${chap}${eap.badge}
                     </div>
-                    <div class="curr-meta">${fmtDateTimeStr(r[1],r[16])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
+                    <div class="curr-meta">${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h · ${filled}/${maxVols} slots</div>
                 </div>
                 <div style="flex-shrink:0">${statusBadge}</div>
             </div>
@@ -3509,7 +3627,7 @@ function attachPostEventEvents() {
         const btn=document.getElementById('pe-submit-btn');
         btn.disabled=true;btn.textContent='Posting…';
         try {
-            await postAction('create_event',{eventName:name,eventDate,signupCloseDate,hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,cardColor,cardDeco,cardLabel,requiresYMCA,registeredList:'',timezone});
+            await postAction('create_event',{eventName:name,eventDate:zonedDateTimeLocalToISO(eventDate,timezone),signupCloseDate:zonedDateTimeLocalToISO(signupCloseDate,timezone),hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,cardColor,cardDeco,cardLabel,requiresYMCA,registeredList:'',timezone});
             toast(`"${name}" posted!`,'success');
             ['pe-name','pe-date','pe-close','pe-hours','pe-max','pe-instructions','pe-label'].forEach(id=>{document.getElementById(id).value='';});
             document.getElementById('pe-assembly').checked=false;
@@ -3576,11 +3694,11 @@ function showEditEvent(r) {
                 <div class="form-grid form-grid-2">
                     <div class="form-group">
                         <label class="form-label">Event Date &amp; Time</label>
-                        <input class="form-input" type="datetime-local" id="ee-date" value="${esc(toDateTimeLocal(r[1]))}">
+                        <input class="form-input" type="datetime-local" id="ee-date" value="${esc(toDateTimeLocal(r[1],r[16]))}">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Signup Close Date &amp; Time</label>
-                        <input class="form-input" type="datetime-local" id="ee-close" value="${esc(toDateTimeLocal(r[8]))}">
+                        <input class="form-input" type="datetime-local" id="ee-close" value="${esc(toDateTimeLocal(r[8],r[16]))}">
                     </div>
                 </div>
                 <div class="form-group">
@@ -3643,7 +3761,7 @@ function showEditEvent(r) {
         const btn=document.getElementById('ee-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            await postAction('edit_event',{eventName:name,fields:{eventDate,signupCloseDate,hours,maxVolunteers,chapterLabel,instructions,cardColor,cardDeco,cardLabel,requiresYMCA,timezone}});
+            await postAction('edit_event',{eventName:name,fields:{eventDate:zonedDateTimeLocalToISO(eventDate,timezone),signupCloseDate:zonedDateTimeLocalToISO(signupCloseDate,timezone),hours,maxVolunteers,chapterLabel,instructions,cardColor,cardDeco,cardLabel,requiresYMCA,timezone}});
             toast(`"${name}" updated!`,'success');
             close();
             await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});
@@ -3688,7 +3806,7 @@ function dirGiveEventHoursHTML() {
             <div class="curr-header">
                 <div style="flex:1;min-width:0">
                     <div class="curr-title">${esc(name)}</div>
-                    <div class="curr-meta">${fmtDateTimeStr(evDate,r[16])} · ${esc(r[2]||'0')}h credit · ${regList.length} registered</div>
+                    <div class="curr-meta">${fmtDateTimeStr(evDate)} · ${esc(r[2]||'0')}h credit · ${regList.length} registered</div>
                 </div>
                 <div style="flex-shrink:0">
                     ${done?'<span class="curr-done-badge">✅ Completed</span>':'<span class="curr-lock-badge">🔒 Closed</span>'}
@@ -3788,7 +3906,7 @@ function viewMyChapter() {
                 const closed=(r[8]&&toDateStr(r[8])<localToday());
                 return `<div class="curr-card ev-card">
                     <div class="curr-title">${esc(r[0]||'')}</div>
-                    <div class="curr-meta">${fmtDateTimeStr(r[1],r[16])} · ${esc(r[2]||'0')}h ${closed?'· Closed':''}</div>
+                    <div class="curr-meta">${fmtDateTimeStr(r[1])} · ${esc(r[2]||'0')}h ${closed?'· Closed':''}</div>
                     ${r[9]?`<div class="muted text-small mt-4" style="font-size:12px">${esc(r[9]).slice(0,100)}</div>`:''}
                 </div>`;
             }).join('')

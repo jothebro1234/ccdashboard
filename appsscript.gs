@@ -7,12 +7,24 @@
  * 3. Deploy as Web App (Execute as: Me, Anyone can access) → copy /exec URL → paste into config.js APPS_SCRIPT_URL
  * 4. Add form-submit trigger: Triggers (clock icon) → + Add Trigger
  *    Function: onFormSubmit | From spreadsheet | On form submit
+ * 5. Run setupTriggers() once: function dropdown (top toolbar) → setupTriggers → ▶ Run.
+ *    Approve the extra permission prompt (it now also reads/writes Forms, not just Sheets).
+ *    This installs the two remaining triggers that make edited form responses actually sync
+ *    to the sheet — see the big comment above reconcileFormResponse() for how all three fit
+ *    together. Re-running setupTriggers() later is safe; it won't create duplicates.
  *
- * VOLUNTEERS SHEET columns (A–O):
+ * VOLUNTEERS SHEET columns (A–O, plus an appended Timezone column):
  *   A=Name  B=Discord  C=School  D=Avatar  E=Email
  *   F=Track  G=Tier  H=Lead  I=CyclesCompleted
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
  *   O=YMCAFormURL
+ *   Timezone (IANA zone, e.g. "America/New_York") — found/created by header name via
+ *   findOrAddColumn, NOT a fixed index, since this sheet has grown extra columns over time
+ *   outside this file. Set via the Google Form (see onFormSubmit/normalizeTimezone below,
+ *   which normalizes free-text answers to a canonical IANA zone) or the portal's own
+ *   "My Progress → Your Timezone" self-service control (set_timezone action) for volunteers
+ *   who signed up before the form question existed. Every date/time a volunteer sees anywhere
+ *   in the portal is converted into this zone — that's the actual per-volunteer auto-conversion.
  *
  * CURRICULUM SHEET columns (A–Q):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
@@ -20,14 +32,25 @@
  *   I=Instructions  J=CardColor  K=CardDeco  L=CardLabel  M=ChapterLabel
  *   N=DurationDays(working-period mode)  O=TriggeredAt(when the duration countdown started)
  *   P=PostedAt(creation timestamp — used to sort lists by posted recency)
- *   Q=Timezone (IANA zone, e.g. "America/New_York" — the zone DueDate/StartDate were set in)
+ *   Q=Timezone (IANA zone the assignment was originally posted in — used to redisplay the
+ *            edit form in the same zone; NOT used for viewer-side conversion, see below)
  *
  * EVENTS SHEET columns (A–Q):
  *   A=EventName  B=Date  C=Hours  D=Attendees  E=IsAssembly  F=IsLeadership
  *   G=MaxVolunteers  H=RegisteredList  I=SignupCloseDate  J=Instructions  K=ChapterLabel
  *   L=CardColor  M=CardDeco  N=CardLabel  O=RequiresYMCA
  *   P=PostedAt(creation timestamp — used to sort lists by posted recency)
- *   Q=Timezone (IANA zone, e.g. "America/New_York" — the zone Date/SignupCloseDate were set in)
+ *   Q=Timezone (IANA zone the event was originally posted in — same purpose as Curriculum!Q)
+ *
+ * DueDate/StartDate (Curriculum) and Date/SignupCloseDate (Events) are stored as real,
+ * unambiguous instants — ISO-8601 strings ending in "Z" (forced to plain-text cell format
+ * so Sheets never silently reformats them) — computed from whatever wall-clock date/time +
+ * timezone the poster picked. The frontend then converts that instant into each individual
+ * viewer's own saved timezone (Volunteers!Timezone, or their browser zone as a fallback) for
+ * display, and this backend does the same (against the server clock) for lock/deadline
+ * enforcement. Rows written before this existed are plain naive "YYYY-MM-DDTHH:MM" strings
+ * with no zone info — both sides detect that (no trailing Z/offset) and keep treating those
+ * literally, unconverted, exactly as before.
  *
  * CHAPTERS SHEET columns (A–L):
  *   A=Email  B=Name  C=School  D=Logo  E=State  F=City
@@ -118,6 +141,7 @@ function ensureMissingHeaders(sh, name) {
         });
     } else if (name === 'Volunteers') {
         findOrAddColumn(sh, 'YMCAFormURL');
+        findOrAddColumn(sh, 'Timezone');
     }
 }
 
@@ -149,12 +173,45 @@ function yesterdayStr() {
     return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
-/* Extract just the date part (YYYY-MM-DD) from any stored date string */
+/* True when a stored value is a real, unambiguous instant — our own converted ISO-with-Z
+   output (or offset-suffixed text), or a genuine Date-typed cell — rather than a naive local
+   "YYYY-MM-DDTHH:MM" string typed before timezone support existed. */
+function isRealInstant(val) {
+    if (val instanceof Date) return true;
+    return /Z$|[+-]\d{2}:?\d{2}$/.test(String(val || '').trim());
+}
+
+/* Extract just the date part (YYYY-MM-DD) from any stored date value. Real instants are
+   converted into the script's home timezone first; legacy naive strings are read literally. */
 function datePartStr(val) {
     if (!val) return '';
+    if (isRealInstant(val)) {
+        const d = new Date(val);
+        return isNaN(d) ? '' : Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    }
     const s = String(val).trim();
     const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
     return m ? m[1] : '';
+}
+
+/* Whether a stored lock/close/due value has passed "now" — an exact instant comparison for
+   real, timezone-converted values, or the legacy day-granularity comparison (locked from the
+   next calendar day onward, in the script's home timezone) for naive pre-migration values. */
+function isPastLock(val) {
+    if (!val) return false;
+    if (isRealInstant(val)) {
+        const d = new Date(val);
+        return !isNaN(d) && d.getTime() < Date.now();
+    }
+    const datePart = datePartStr(val);
+    return !!datePart && datePart < todayStr();
+}
+
+/* Forces a cell to store/display as plain text before writing, so our ISO datetime strings
+   are never silently reformatted (or reinterpreted in the wrong timezone) by Sheets' own
+   date auto-detection — this is what guarantees they round-trip byte-for-byte. */
+function setTextValue(range, value) {
+    range.setNumberFormat('@').setValue(value);
 }
 
 /* ── doPost ─────────────────────────────────────────────────── */
@@ -264,6 +321,7 @@ function route(body) {
         /* Volunteers */
         case 'update_tier':            return updateTier(body);
         case 'set_hours_goal':         return setHoursGoal(body);
+        case 'set_timezone':           return setTimezone(body);
         case 'upload_ymca_form':       return uploadYMCAForm(body);
         /* Director requests (chapter president → DOC/DOO grant) */
         case 'request_director':          return requestDirector(body);
@@ -297,6 +355,11 @@ function createCurriculum(b) {
         new Date(),   // PostedAt — used to sort lists by posted recency
         b.timezone              || '',
     ]);
+    // Re-set DueDate/StartDate as forced plain text so our ISO-with-Z instants never get
+    // silently reformatted (or reinterpreted in the wrong zone) by Sheets' date auto-detection.
+    const newRow = sh.getLastRow();
+    setTextValue(sh.getRange(newRow, 2), b.dueDate || '');
+    setTextValue(sh.getRange(newRow, 6), b.startDate || '');
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
 
@@ -312,10 +375,10 @@ function editCurriculum(b) {
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
     const f = b.fields || {};
-    if (f.dueDate       !== undefined) sh.getRange(rowIdx, 2).setValue(f.dueDate);
+    if (f.dueDate       !== undefined) setTextValue(sh.getRange(rowIdx, 2), f.dueDate);
     if (f.hours         !== undefined) sh.getRange(rowIdx, 3).setValue(f.hours);
     if (f.slidesLink    !== undefined) sh.getRange(rowIdx, 5).setValue(f.slidesLink);
-    if (f.startDate     !== undefined) sh.getRange(rowIdx, 6).setValue(f.startDate);
+    if (f.startDate     !== undefined) setTextValue(sh.getRange(rowIdx, 6), f.startDate);
     if (f.maxVolunteers !== undefined) sh.getRange(rowIdx, 7).setValue(f.maxVolunteers);
     if (f.instructions  !== undefined) sh.getRange(rowIdx, 9).setValue(f.instructions);
     if (f.cardColor     !== undefined) sh.getRange(rowIdx, 10).setValue(f.cardColor);
@@ -342,9 +405,7 @@ function registerCurriculum(b) {
 
     if (rowData[14]) throw new Error('Registration is locked — this assignment has already started.');
 
-    const startDatePart = datePartStr(rowData[5]);
-    const today = todayStr();
-    if (startDatePart && startDatePart < today) {
+    if (isPastLock(rowData[5])) {
         throw new Error('Registration is locked — the start date has passed.');
     }
 
@@ -365,8 +426,8 @@ function registerCurriculum(b) {
     if (durationDays > 0 && maxVols > 0 && regList.length >= maxVols) {
         const now = new Date();
         const due = new Date(now.getTime() + durationDays * 86400000);
-        sh.getRange(rowIdx, 15).setValue(now);
-        sh.getRange(rowIdx, 2).setValue(due);
+        setTextValue(sh.getRange(rowIdx, 15), now.toISOString());
+        setTextValue(sh.getRange(rowIdx, 2), due.toISOString());
     }
 
     return 'Registered: ' + b.volunteerName;
@@ -387,9 +448,7 @@ function unregisterCurriculum(b) {
 
     if (rowData[14]) throw new Error('This assignment has already started — contact your DOC to be removed.');
 
-    const startDatePart = datePartStr(rowData[5]);
-    const today = todayStr();
-    if (startDatePart && startDatePart < today) {
+    if (isPastLock(rowData[5])) {
         throw new Error('Registration is locked — contact your DOC to be removed.');
     }
 
@@ -420,8 +479,8 @@ function startCurriculum(b) {
 
     const now = new Date();
     const due = new Date(now.getTime() + durationDays * 86400000);
-    sh.getRange(rowIdx, 15).setValue(now);
-    sh.getRange(rowIdx, 2).setValue(due);
+    setTextValue(sh.getRange(rowIdx, 15), now.toISOString());
+    setTextValue(sh.getRange(rowIdx, 2), due.toISOString());
     return 'Started: ' + b.assignmentName;
 }
 
@@ -485,6 +544,10 @@ function createEvent(b) {
         new Date(),   // PostedAt — used to sort lists by posted recency
         b.timezone        || '',
     ]);
+    // Re-set Date/SignupCloseDate as forced plain text — see comment in createCurriculum.
+    const newRow = sh.getLastRow();
+    setTextValue(sh.getRange(newRow, 2), b.eventDate || '');
+    setTextValue(sh.getRange(newRow, 9), b.signupCloseDate || '');
     return 'Event created: ' + b.eventName;
 }
 
@@ -501,12 +564,12 @@ function editEvent(b) {
     if (rowIdx < 0) throw new Error('Event not found: ' + b.eventName);
 
     const f = b.fields || {};
-    if (f.eventDate       !== undefined) sh.getRange(rowIdx, 2).setValue(f.eventDate);
+    if (f.eventDate       !== undefined) setTextValue(sh.getRange(rowIdx, 2), f.eventDate);
     if (f.hours           !== undefined) sh.getRange(rowIdx, 3).setValue(f.hours);
     if (f.isAssembly      !== undefined) sh.getRange(rowIdx, 5).setValue(f.isAssembly);
     if (f.isLeadership    !== undefined) sh.getRange(rowIdx, 6).setValue(f.isLeadership);
     if (f.maxVolunteers   !== undefined) sh.getRange(rowIdx, 7).setValue(f.maxVolunteers);
-    if (f.signupCloseDate !== undefined) sh.getRange(rowIdx, 9).setValue(f.signupCloseDate);
+    if (f.signupCloseDate !== undefined) setTextValue(sh.getRange(rowIdx, 9), f.signupCloseDate);
     if (f.instructions    !== undefined) sh.getRange(rowIdx, 10).setValue(f.instructions);
     if (f.chapterLabel    !== undefined) sh.getRange(rowIdx, 11).setValue(f.chapterLabel);
     if (f.cardColor       !== undefined) sh.getRange(rowIdx, 12).setValue(f.cardColor);
@@ -537,9 +600,7 @@ function registerEvent(b) {
         if (!ymcaUrl) throw new Error('This event requires a signed YMCA volunteer form. Please upload your form in the portal (My Progress → Required Forms) before registering.');
     }
 
-    const closeDatePart = datePartStr(rowData[8]);
-    const today = todayStr();
-    if (closeDatePart && closeDatePart < today) {
+    if (isPastLock(rowData[8])) {
         throw new Error('Event registration is closed.');
     }
 
@@ -570,9 +631,7 @@ function unregisterEvent(b) {
     }
     if (rowIdx < 0) throw new Error('Event not found: ' + b.eventName);
 
-    const closeDatePart = datePartStr(rowData[8]);
-    const today = todayStr();
-    if (closeDatePart && closeDatePart < today) {
+    if (isPastLock(rowData[8])) {
         throw new Error('Event registration is closed — contact your DOO to be removed.');
     }
 
@@ -614,6 +673,16 @@ function setHoursGoal(b) {
     if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
     updateCell(SHEET_VOLUNTEERS, found[0], 13, b.goal);
     return 'Hours goal set: ' + b.volunteerName + ' → ' + b.goal;
+}
+
+/* Volunteer self-service: save their own timezone preference. Every date/time they see in the
+   portal is converted into this zone (falling back to their browser's zone if unset). */
+function setTimezone(b) {
+    const found = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
+    if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
+    const tzCol = findOrAddColumn(getSheet(SHEET_VOLUNTEERS), 'Timezone');
+    updateCell(SHEET_VOLUNTEERS, found[0], tzCol - 1, b.timezone || '');
+    return 'Timezone set: ' + b.volunteerName + ' → ' + b.timezone;
 }
 
 function uploadYMCAForm(b) {
@@ -737,16 +806,31 @@ function denyDirectorRequest(b) {
 // Set up via: Triggers → + Add Trigger
 //   Function: onFormSubmit | From spreadsheet | On form submit
 function onFormSubmit(e) {
-    const row = e.range.getRow();
-    const sh  = e.range.getSheet();
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+        const row = e.range.getRow();
+        const sh  = e.range.getSheet();
 
-    const specialty = sh.getRange(row, 10).getValue();
-    const track     = specialtyToTrack(specialty);
+        const specialty = sh.getRange(row, 10).getValue();
+        const track     = specialtyToTrack(specialty);
 
-    if (track) sh.getRange(row, 6).setValue(track);
-    sh.getRange(row, 7).setValue('1');
-    sh.getRange(row, 8).setValue('FALSE');
-    sh.getRange(row, 9).setValue('0');
+        if (track) sh.getRange(row, 6).setValue(track);
+        sh.getRange(row, 7).setValue('1');
+        sh.getRange(row, 8).setValue('FALSE');
+        sh.getRange(row, 9).setValue('0');
+
+        // If the form has a question titled "Timezone" (add one with the exact answer choices
+        // below), normalize whatever text the volunteer picked into a canonical IANA zone, in
+        // place, in the dedicated Timezone column — this is what drives per-volunteer date
+        // conversion across the portal. No-op if the question/column doesn't exist yet.
+        const tzCol = findOrAddColumn(sh, 'Timezone');
+        const rawTz = sh.getRange(row, tzCol).getValue();
+        const normTz = normalizeTimezone(rawTz);
+        if (normTz) sh.getRange(row, tzCol).setValue(normTz);
+    } finally {
+        lock.releaseLock();
+    }
 }
 
 function specialtyToTrack(specialty) {
@@ -755,4 +839,176 @@ function specialtyToTrack(specialty) {
     if (s.includes('operation') || s.includes('in-person') || s.includes('session')) return 'Operations';
     if (s.includes('media') || s.includes('design') || s.includes('content') || s.includes('publicity')) return 'Media/Design';
     return '';
+}
+
+/* Normalizes a raw Google Form timezone answer (e.g. "Eastern (ET)", "Eastern Time") into a
+   canonical IANA zone. Keep in sync with the TZ_OPTIONS list in portal.js — suggested exact
+   Google Form multiple-choice answers: Eastern (ET), Central (CT), Mountain (MT),
+   Arizona (no DST), Pacific (PT), Alaska (AKT), Hawaii (HST), UTC. */
+function normalizeTimezone(raw) {
+    const s = (raw || '').toString().toLowerCase();
+    if (!s) return '';
+    if (s.indexOf('hawaii') >= 0) return 'Pacific/Honolulu';
+    if (s.indexOf('alaska') >= 0) return 'America/Anchorage';
+    if (s.indexOf('arizona') >= 0) return 'America/Phoenix';
+    if (s.indexOf('pacific') >= 0 || /\bpt\b/.test(s) || /\bpst\b/.test(s) || /\bpdt\b/.test(s)) return 'America/Los_Angeles';
+    if (s.indexOf('mountain') >= 0 || /\bmt\b/.test(s) || /\bmst\b/.test(s) || /\bmdt\b/.test(s)) return 'America/Denver';
+    if (s.indexOf('central') >= 0 || /\bct\b/.test(s) || /\bcst\b/.test(s) || /\bcdt\b/.test(s)) return 'America/Chicago';
+    if (s.indexOf('eastern') >= 0 || /\bet\b/.test(s) || /\best\b/.test(s) || /\bedt\b/.test(s)) return 'America/New_York';
+    if (s.indexOf('utc') >= 0 || s.indexOf('gmt') >= 0) return 'UTC';
+    return '';
+}
+
+/* ── FORM RESPONSE EDIT SYNC ────────────────────────────────────────────────────────────
+   Google's "Edit after submit" is supposed to update the linked spreadsheet row when a
+   volunteer edits their response, but that sync is known to be unreliable — it commonly
+   just silently doesn't happen (especially on sheets with scripts/triggers attached, like
+   this one). Three layers work around it, from most to least immediate:
+
+   1. onFormSubmit(e)       — the SPREADSHEET-bound trigger above. Google's own row-append
+      for a BRAND NEW submission already works reliably; this just fills in derived defaults
+      (Track/Tier/Lead/CyclesCompleted) on the row it created. Unchanged in what it does.
+   2. onFormSubmitOrEdit(e) — a FORM-bound trigger (installed by setupTriggers(), not the
+      plain Triggers UI, since it needs a live Form object handle). A form-bound submit event
+      fires for edits too, unlike the spreadsheet-bound one — this is what actually catches
+      edits, live, right when they happen.
+   3. syncFormResponses()   — an hourly time-driven backstop. Same reconciliation as #2, but
+      sweeps every response instead of reacting to one event, so a misfired trigger or a
+      manual sheet edit that drifted out of sync gets repaired within the hour regardless.
+
+   Run setupTriggers() ONCE from the Apps Script editor (function dropdown → setupTriggers →
+   ▶ Run) to install #2 and #3 — keep your existing onFormSubmit trigger (#1) as-is. */
+
+function setupTriggers() {
+    const formUrl = SS.getFormUrl();
+    if (!formUrl) throw new Error('This spreadsheet is not linked to a Form — nothing to set up.');
+    const form = FormApp.openByUrl(formUrl);
+    const existing = ScriptApp.getProjectTriggers();
+
+    const hasEditTrigger = existing.some(function(t) {
+        return t.getHandlerFunction() === 'onFormSubmitOrEdit' && t.getTriggerSourceId() === form.getId();
+    });
+    if (!hasEditTrigger) ScriptApp.newTrigger('onFormSubmitOrEdit').forForm(form).onFormSubmit().create();
+
+    const hasSyncTrigger = existing.some(function(t) { return t.getHandlerFunction() === 'syncFormResponses'; });
+    if (!hasSyncTrigger) ScriptApp.newTrigger('syncFormResponses').timeBased().everyHours(1).create();
+
+    return 'Triggers ready: onFormSubmitOrEdit (live edit sync) + syncFormResponses (hourly backstop). ' +
+        'Your existing onFormSubmit trigger still handles brand-new submissions — leave it in place.';
+}
+
+function onFormSubmitOrEdit(e) {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+        reconcileFormResponse(getSheet(SHEET_VOLUNTEERS), e.response);
+    } finally {
+        lock.releaseLock();
+    }
+}
+
+function syncFormResponses() {
+    const formUrl = SS.getFormUrl();
+    if (!formUrl) return; // this spreadsheet isn't form-linked — nothing to sync
+    const form = FormApp.openByUrl(formUrl);
+    const sh = getSheet(SHEET_VOLUNTEERS);
+    if (sh.getLastRow() < 2) return;
+
+    const lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+        form.getResponses().forEach(function(resp) { reconcileFormResponse(sh, resp); });
+    } finally {
+        lock.releaseLock();
+    }
+}
+
+/* Shared by the live edit trigger and the hourly backstop: matches a Form response to its
+   sheet row by a stable response ID (stamped here on first match, since a response's ID
+   never changes even when its answers are edited — unlike Google's own row-sync, which
+   drops edits), falling back to email for rows that don't have an ID stamped yet. Then
+   overwrites any raw answer cell that's out of date, propagates a Name change into every
+   Curriculum/Events registration & credit list so history doesn't orphan under the old
+   name, and re-derives Track/Timezone from whatever the answers now say. */
+function reconcileFormResponse(sh, resp) {
+    if (!resp) return;
+    const lastRow = sh.getLastRow();
+    if (lastRow < 2) return;
+
+    const EMAIL_COL_IDX = 4; // 0-indexed column E — matches config.js CONFIG.EMAIL_COL
+    const idCol = findOrAddColumn(sh, 'FormResponseId');
+    const lastCol = sh.getLastColumn();
+    const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) { return String(h || '').trim(); });
+    const data = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+
+    const id = resp.getId();
+    let rowIdx = null;
+    for (let i = 0; i < data.length; i++) {
+        if (String(data[i][idCol - 1] || '').trim() === id) { rowIdx = i + 2; break; }
+    }
+    if (!rowIdx) {
+        const email = (resp.getRespondentEmail() || '').trim().toLowerCase();
+        if (email) {
+            for (let i = 0; i < data.length; i++) {
+                if (String(data[i][EMAIL_COL_IDX] || '').trim().toLowerCase() === email) { rowIdx = i + 2; break; }
+            }
+        }
+        if (!rowIdx) return; // genuinely new submission — the create-path (onFormSubmit) handles it
+        sh.getRange(rowIdx, idCol).setValue(id); // backfill so ID-matching works next time
+    }
+
+    const oldName = String(sh.getRange(rowIdx, 1).getValue() || '').trim();
+
+    resp.getItemResponses().forEach(function(itemResp) {
+        const title = itemResp.getItem().getTitle().trim();
+        const colIdx = headers.indexOf(title); // sheet's own header text is the source of truth
+        if (colIdx < 0) return; // question isn't mapped to a tracked column — skip
+        const newVal = itemResp.getResponse();
+        const cell = sh.getRange(rowIdx, colIdx + 1);
+        if (String(cell.getValue()) !== String(newVal)) cell.setValue(newVal);
+    });
+
+    const newName = String(sh.getRange(rowIdx, 1).getValue() || '').trim();
+    if (oldName && newName && oldName !== newName) renameVolunteerEverywhere(oldName, newName);
+
+    // Re-derive Track from whatever's now in SelectYourMainSpecialty (col J)
+    const track = specialtyToTrack(sh.getRange(rowIdx, 10).getValue());
+    if (track) sh.getRange(rowIdx, 6).setValue(track);
+
+    // Re-normalize Timezone from whatever's now in the Timezone question/column
+    const tzCol = findOrAddColumn(sh, 'Timezone');
+    const rawTz = sh.getRange(rowIdx, tzCol).getValue();
+    const normTz = normalizeTimezone(rawTz);
+    if (normTz && normTz !== rawTz) sh.getRange(rowIdx, tzCol).setValue(normTz);
+}
+
+/* Registrations and hours-credited are tracked as comma-separated NAMES (not emails) in
+   Curriculum/Events — if a volunteer's name changes, propagate the rename into every list it
+   appears in so their history doesn't silently orphan under the old name. Matches whole
+   comma-separated tokens only (case-insensitive), never substrings. */
+function renameVolunteerEverywhere(oldName, newName) {
+    const oldLower = oldName.trim().toLowerCase();
+    [
+        { sheet: SHEET_CURRICULUM, cols: [4, 8] },  // D=Contributors, H=RegisteredVolunteers
+        { sheet: SHEET_EVENTS,     cols: [4, 8] },  // D=Attendees, H=RegisteredList
+    ].forEach(function(target) {
+        const sh = SS.getSheetByName(target.sheet);
+        if (!sh) return;
+        const lastRow = sh.getLastRow();
+        if (lastRow < 2) return;
+        target.cols.forEach(function(col) {
+            const range = sh.getRange(2, col, lastRow - 1, 1);
+            const values = range.getValues();
+            let changed = false;
+            const updated = values.map(function(row) {
+                const cell = String(row[0] || '');
+                if (!cell) return row;
+                const names = cell.split(',').map(function(n) { return n.trim(); }).filter(Boolean);
+                const renamed = names.map(function(n) { return n.toLowerCase() === oldLower ? newName : n; });
+                if (renamed.join(', ') !== names.join(', ')) changed = true;
+                return [renamed.join(', ')];
+            });
+            if (changed) range.setValues(updated);
+        });
+    });
 }
