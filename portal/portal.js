@@ -391,9 +391,14 @@ function tzAbbrev(tz,date) {
         return p?p.value:'';
     } catch(_) { return''; }
 }
-// True when a stored value is a real, unambiguous instant (our own converted ISO-with-Z output,
-// or an offset-suffixed string) rather than a naive local wall-clock string typed pre-migration.
-function hasTZInfo(s) { return/Z$|[+-]\d{2}:?\d{2}$/.test(String(s||'').trim()); }
+// True when a stored value is a real, unambiguous instant — a plain epoch-milliseconds number
+// (as text or number), rather than a naive local wall-clock string typed before timezone
+// support existed. Deliberately NOT a date-shaped string: Google Sheets' gviz CSV export infers
+// a "date" type for columns like DueDate/EventDate and, for any cell it can't represent using
+// that inferred type (which includes force-text cells holding an ISO string), silently returns
+// an EMPTY value instead of the real content — even though the cell itself is correct. A plain
+// number never triggers that inference, so it round-trips reliably.
+function hasTZInfo(s) { return/^\d{12,}$/.test(String(s||'').trim()); }
 // {year,month,day,hour,minute} of an absolute instant, expressed as wall-clock in the given zone.
 // Falls back to UTC for a garbage/invalid `tz` instead of throwing — a bad stored zone should
 // never take down the whole page, just show a slightly-off time.
@@ -411,9 +416,10 @@ function tzOffsetMs(instantMs,tz) {
     return asUTC-instantMs;
 }
 // Converts a wall-clock "YYYY-MM-DDTHH:MM" (as typed into a datetime-local input) AS IF IT WERE
-// in timezone `tz` into the true absolute instant, returned as an ISO string. This is what makes
-// "3pm Pacific" mean the same moment no matter who's viewing it or from where.
-function zonedDateTimeLocalToISO(dtLocal,tz) {
+// in timezone `tz` into the true absolute instant, returned as epoch milliseconds (a plain
+// number — see the comment on hasTZInfo for why not an ISO string). This is what makes "3pm
+// Pacific" mean the same moment no matter who's viewing it or from where.
+function zonedDateTimeLocalToEpoch(dtLocal,tz) {
     if(!dtLocal)return'';
     const[dateStr,timeStr]=dtLocal.split('T');
     const[y,mo,d]=dateStr.split('-').map(Number);
@@ -423,7 +429,7 @@ function zonedDateTimeLocalToISO(dtLocal,tz) {
     let utcMs=naiveMs-offset;
     const offset2=tzOffsetMs(utcMs,tz);
     if(offset2!==offset)utcMs=naiveMs-offset2;
-    return new Date(utcMs).toISOString();
+    return utcMs;
 }
 
 /* Returns today as YYYY-MM-DD in the current viewer's timezone (myTZ()) */
@@ -439,7 +445,7 @@ function toDateStr(d) {
     if(!d)return'';
     const s=String(d).trim();
     if(hasTZInfo(s)){
-        const dt=new Date(s);
+        const dt=new Date(Number(s));
         if(isNaN(dt))return'';
         const p=zonedParts(dt,myTZ());
         return`${p.year}-${p.month}-${p.day}`;
@@ -457,7 +463,7 @@ function toTimeStr(s) {
     if(!s)return'';
     const str=String(s).trim();
     if(hasTZInfo(str)){
-        const dt=new Date(str);
+        const dt=new Date(Number(str));
         if(isNaN(dt))return'';
         const p=zonedParts(dt,myTZ());
         return`${p.hour}:${p.minute}`;
@@ -469,7 +475,7 @@ function formatCountdown(startDate) {
     if(!startDate)return'';
     let diff;
     if(hasTZInfo(startDate)){
-        const target=new Date(startDate);
+        const target=new Date(Number(startDate));
         if(isNaN(target))return'';
         diff=target-new Date();
         if(diff<=0)return'Registration locked';
@@ -497,7 +503,7 @@ function isLocked(startDate,triggeredAt) {
     if(triggeredAt)return true;
     if(!startDate)return false;
     if(hasTZInfo(startDate)){
-        const d=new Date(startDate);
+        const d=new Date(Number(startDate));
         return!isNaN(d)&&d.getTime()<Date.now();
     }
     const sd=toDateStr(startDate);
@@ -508,7 +514,7 @@ function isClosed(startDate,dueDate,triggeredAt) {
     if(isLocked(startDate,triggeredAt))return true;
     if(!dueDate)return false;
     if(hasTZInfo(dueDate)){
-        const d=new Date(dueDate);
+        const d=new Date(Number(dueDate));
         return!isNaN(d)&&d.getTime()<Date.now();
     }
     const dd=toDateStr(dueDate);
@@ -533,15 +539,18 @@ function sortByRecency(rows) {
 function isCompleted(dueDate) {
     if(!dueDate)return false;
     if(hasTZInfo(dueDate)){
-        const d=new Date(dueDate);
+        const d=new Date(Number(dueDate));
         return!isNaN(d)&&d.getTime()<Date.now();
     }
     const dd=toDateStr(dueDate);
     return dd!==''&&dd<localToday();
 }
+// Epoch ms for "24 hours ago" — used by the Start Now/Finish Early quick actions to force a
+// due/start/close date that's definitely already passed. Returned as a number (not a date
+// string) since that's what dueDate/startDate/eventDate/signupCloseDate now store — see the
+// comment on hasTZInfo for why.
 function localYesterday() {
-    const n=new Date();n.setDate(n.getDate()-1);
-    return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+    return Date.now()-86400000;
 }
 /* Format a stored date/datetime value to human-readable, including time and timezone if present.
    Real instants are shown converted into the current viewer's own timezone (myTZ()). */
@@ -556,7 +565,7 @@ function fmtDateTimeStr(s) {
     const[h,min]=ts.split(':').map(Number);
     const ampm=h>=12?'PM':'AM';
     const hr12=h%12||12;
-    const tzLabel=hasTZInfo(s)?` ${tzAbbrev(myTZ(),new Date(s))}`.trimEnd():'';
+    const tzLabel=hasTZInfo(s)?` ${tzAbbrev(myTZ(),new Date(Number(s)))}`.trimEnd():'';
     return`${dateFmt} at ${hr12}:${String(min).padStart(2,'0')} ${ampm}${tzLabel}`;
 }
 /* Convert stored date/datetime to datetime-local input format. For real instants, `tz` picks
@@ -565,7 +574,7 @@ function fmtDateTimeStr(s) {
 function toDateTimeLocal(s,tz) {
     if(!s)return'';
     if(hasTZInfo(s)){
-        const dt=new Date(s);
+        const dt=new Date(Number(s));
         if(isNaN(dt))return'';
         const p=zonedParts(dt,tz||guessTZ());
         return`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
@@ -2685,10 +2694,10 @@ function attachPostAssignEvents() {
         try {
             await postAction('create_curriculum',{
                 assignmentName:name,
-                dueDate:durationMode?'':zonedDateTimeLocalToISO(due,timezone),
+                dueDate:durationMode?'':zonedDateTimeLocalToEpoch(due,timezone),
                 durationDays:durationMode?durationDays:'',
                 hours,contributors:'',
-                slidesLink:slides,startDate:zonedDateTimeLocalToISO(start,timezone),maxVolunteers:max,
+                slidesLink:slides,startDate:zonedDateTimeLocalToEpoch(start,timezone),maxVolunteers:max,
                 registeredVolunteers:'',instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone,
             });
             toast(`"${name}" posted!`,'success');
@@ -2848,7 +2857,7 @@ function showEditAssignment(r) {
         const btn=document.getElementById('ed-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            const fields={slidesLink:slides,dueDate:zonedDateTimeLocalToISO(due,timezone),startDate:zonedDateTimeLocalToISO(start,timezone),hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone};
+            const fields={slidesLink:slides,dueDate:zonedDateTimeLocalToEpoch(due,timezone),startDate:zonedDateTimeLocalToEpoch(start,timezone),hours,maxVolunteers:max,instructions,cardColor,cardDeco,cardLabel,chapterLabel,timezone};
             if(!isDurationTriggered(r))fields.durationDays=durationDays;
             await postAction('edit_curriculum',{assignmentName:name,fields});
             toast(`"${name}" updated!`,'success');
@@ -3723,7 +3732,7 @@ function attachPostEventEvents() {
         const btn=document.getElementById('pe-submit-btn');
         btn.disabled=true;btn.textContent='Posting…';
         try {
-            await postAction('create_event',{eventName:name,eventDate:zonedDateTimeLocalToISO(eventDate,timezone),signupCloseDate:zonedDateTimeLocalToISO(signupCloseDate,timezone),hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,cardColor,cardDeco,cardLabel,requiresYMCA,registeredList:'',timezone});
+            await postAction('create_event',{eventName:name,eventDate:zonedDateTimeLocalToEpoch(eventDate,timezone),signupCloseDate:zonedDateTimeLocalToEpoch(signupCloseDate,timezone),hours,maxVolunteers,isAssembly,isLeadership,instructions,chapterLabel,cardColor,cardDeco,cardLabel,requiresYMCA,registeredList:'',timezone});
             toast(`"${name}" posted!`,'success');
             ['pe-name','pe-date','pe-close','pe-hours','pe-max','pe-instructions','pe-label'].forEach(id=>{document.getElementById(id).value='';});
             document.getElementById('pe-assembly').checked=false;
@@ -3857,7 +3866,7 @@ function showEditEvent(r) {
         const btn=document.getElementById('ee-submit-btn');
         btn.disabled=true;btn.textContent='Saving…';
         try {
-            await postAction('edit_event',{eventName:name,fields:{eventDate:zonedDateTimeLocalToISO(eventDate,timezone),signupCloseDate:zonedDateTimeLocalToISO(signupCloseDate,timezone),hours,maxVolunteers,chapterLabel,instructions,cardColor,cardDeco,cardLabel,requiresYMCA,timezone}});
+            await postAction('edit_event',{eventName:name,fields:{eventDate:zonedDateTimeLocalToEpoch(eventDate,timezone),signupCloseDate:zonedDateTimeLocalToEpoch(signupCloseDate,timezone),hours,maxVolunteers,chapterLabel,instructions,cardColor,cardDeco,cardLabel,requiresYMCA,timezone}});
             toast(`"${name}" updated!`,'success');
             close();
             await loadDirectorData(getRoleDisplayInfo().track).catch(()=>{});

@@ -43,14 +43,17 @@
  *   Q=Timezone (IANA zone the event was originally posted in — same purpose as Curriculum!Q)
  *
  * DueDate/StartDate (Curriculum) and Date/SignupCloseDate (Events) are stored as real,
- * unambiguous instants — ISO-8601 strings ending in "Z" (forced to plain-text cell format
- * so Sheets never silently reformats them) — computed from whatever wall-clock date/time +
- * timezone the poster picked. The frontend then converts that instant into each individual
- * viewer's own saved timezone (Volunteers!Timezone, or their browser zone as a fallback) for
- * display, and this backend does the same (against the server clock) for lock/deadline
- * enforcement. Rows written before this existed are plain naive "YYYY-MM-DDTHH:MM" strings
- * with no zone info — both sides detect that (no trailing Z/offset) and keep treating those
- * literally, unconverted, exactly as before.
+ * unambiguous instants — a plain epoch-milliseconds NUMBER (see setInstantValue/isRealInstant)
+ * — computed from whatever wall-clock date/time + timezone the poster picked. NOT an ISO date
+ * string: an earlier version stored those, and Sheets' gviz CSV export — which infers a "date"
+ * type for these columns — silently returned EMPTY for any cell it couldn't represent that way
+ * (a text-formatted ISO string), even though the cell itself was correct. A plain number never
+ * triggers that inference and always round-trips correctly. The frontend converts the instant
+ * into each individual viewer's own saved timezone (Volunteers!Timezone, or their browser zone
+ * as a fallback) for display, and this backend does the same (against the server clock) for
+ * lock/deadline enforcement. Rows written before timezone support existed are plain naive
+ * "YYYY-MM-DDTHH:MM" strings with no instant meaning — both sides detect that (not a 12+ digit
+ * number) and keep treating those literally, unconverted, exactly as before.
  *
  * CHAPTERS SHEET columns (A–L):
  *   A=Email  B=Name  C=School  D=Logo  E=State  F=City
@@ -184,12 +187,24 @@ function yesterdayStr() {
     return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
-/* True when a stored value is a real, unambiguous instant — our own converted ISO-with-Z
-   output (or offset-suffixed text), or a genuine Date-typed cell — rather than a naive local
-   "YYYY-MM-DDTHH:MM" string typed before timezone support existed. */
+/* True when a stored value is a real, unambiguous instant — a plain epoch-milliseconds number
+   (as a number or numeric text), or a genuine Date-typed cell — rather than a naive local
+   "YYYY-MM-DDTHH:MM" string typed before timezone support existed.
+   Deliberately NOT a date-shaped string (we used to store ISO-with-Z text): Sheets' gviz CSV
+   export infers a "date" type for columns like DueDate/EventDate, and for any cell it can't
+   represent using that inferred type — which includes a force-text cell holding an ISO
+   string — it silently returns an EMPTY value in the CSV instead of the real content, even
+   though the cell itself is correct. A plain number never triggers that inference and always
+   round-trips correctly, which is why every write below uses setInstantValue()/plain numbers. */
 function isRealInstant(val) {
     if (val instanceof Date) return true;
-    return /Z$|[+-]\d{2}:?\d{2}$/.test(String(val || '').trim());
+    return /^\d{12,}$/.test(String(val || '').trim());
+}
+
+/* Converts a real-instant value (Date object or epoch-ms number/text) to its epoch ms. */
+function toEpochMs(val) {
+    if (val instanceof Date) return val.getTime();
+    return Number(val);
 }
 
 /* Extract just the date part (YYYY-MM-DD) from any stored date value. Real instants are
@@ -197,8 +212,8 @@ function isRealInstant(val) {
 function datePartStr(val) {
     if (!val) return '';
     if (isRealInstant(val)) {
-        const d = new Date(val);
-        return isNaN(d) ? '' : Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        const ms = toEpochMs(val);
+        return isNaN(ms) ? '' : Utilities.formatDate(new Date(ms), Session.getScriptTimeZone(), 'yyyy-MM-dd');
     }
     const s = String(val).trim();
     const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -211,18 +226,22 @@ function datePartStr(val) {
 function isPastLock(val) {
     if (!val) return false;
     if (isRealInstant(val)) {
-        const d = new Date(val);
-        return !isNaN(d) && d.getTime() < Date.now();
+        const ms = toEpochMs(val);
+        return !isNaN(ms) && ms < Date.now();
     }
     const datePart = datePartStr(val);
     return !!datePart && datePart < todayStr();
 }
 
-/* Forces a cell to store/display as plain text before writing, so our ISO datetime strings
-   are never silently reformatted (or reinterpreted in the wrong timezone) by Sheets' own
-   date auto-detection — this is what guarantees they round-trip byte-for-byte. */
-function setTextValue(range, value) {
-    range.setNumberFormat('@').setValue(value);
+/* Writes a real-instant date field as a plain integer (epoch ms) — explicit "0" number format
+   so Sheets never renders it with thousands separators or scientific notation. Falls back to a
+   literal setValue for empty/legacy (non-numeric, e.g. a quick "yesterday" date-string) values,
+   since those don't need — and shouldn't get — number formatting. */
+function setInstantValue(range, value) {
+    if (value === '' || value === null || value === undefined) { range.setValue(''); return; }
+    const n = Number(value);
+    if (isNaN(n)) { range.setValue(value); return; }
+    range.setNumberFormat('0').setValue(n);
 }
 
 /* ── doPost ─────────────────────────────────────────────────── */
@@ -370,8 +389,8 @@ function createCurriculum(b) {
     // Re-set DueDate/StartDate as forced plain text so our ISO-with-Z instants never get
     // silently reformatted (or reinterpreted in the wrong zone) by Sheets' date auto-detection.
     const newRow = sh.getLastRow();
-    setTextValue(sh.getRange(newRow, 2), b.dueDate || '');
-    setTextValue(sh.getRange(newRow, 6), b.startDate || '');
+    setInstantValue(sh.getRange(newRow, 2), b.dueDate || '');
+    setInstantValue(sh.getRange(newRow, 6), b.startDate || '');
     return 'Curriculum assignment created: ' + b.assignmentName;
 }
 
@@ -387,10 +406,10 @@ function editCurriculum(b) {
     if (rowIdx < 0) throw new Error('Assignment not found: ' + b.assignmentName);
 
     const f = b.fields || {};
-    if (f.dueDate       !== undefined) setTextValue(sh.getRange(rowIdx, 2), f.dueDate);
+    if (f.dueDate       !== undefined) setInstantValue(sh.getRange(rowIdx, 2), f.dueDate);
     if (f.hours         !== undefined) sh.getRange(rowIdx, 3).setValue(f.hours);
     if (f.slidesLink    !== undefined) sh.getRange(rowIdx, 5).setValue(f.slidesLink);
-    if (f.startDate     !== undefined) setTextValue(sh.getRange(rowIdx, 6), f.startDate);
+    if (f.startDate     !== undefined) setInstantValue(sh.getRange(rowIdx, 6), f.startDate);
     if (f.maxVolunteers !== undefined) sh.getRange(rowIdx, 7).setValue(f.maxVolunteers);
     if (f.instructions  !== undefined) sh.getRange(rowIdx, 9).setValue(f.instructions);
     if (f.cardColor     !== undefined) sh.getRange(rowIdx, 10).setValue(f.cardColor);
@@ -438,8 +457,8 @@ function registerCurriculum(b) {
     if (durationDays > 0 && maxVols > 0 && regList.length >= maxVols) {
         const now = new Date();
         const due = new Date(now.getTime() + durationDays * 86400000);
-        setTextValue(sh.getRange(rowIdx, 15), now.toISOString());
-        setTextValue(sh.getRange(rowIdx, 2), due.toISOString());
+        setInstantValue(sh.getRange(rowIdx, 15), now.getTime());
+        setInstantValue(sh.getRange(rowIdx, 2), due.getTime());
     }
 
     return 'Registered: ' + b.volunteerName;
@@ -491,8 +510,8 @@ function startCurriculum(b) {
 
     const now = new Date();
     const due = new Date(now.getTime() + durationDays * 86400000);
-    setTextValue(sh.getRange(rowIdx, 15), now.toISOString());
-    setTextValue(sh.getRange(rowIdx, 2), due.toISOString());
+    setInstantValue(sh.getRange(rowIdx, 15), now.getTime());
+    setInstantValue(sh.getRange(rowIdx, 2), due.getTime());
     return 'Started: ' + b.assignmentName;
 }
 
@@ -558,8 +577,8 @@ function createEvent(b) {
     ]);
     // Re-set Date/SignupCloseDate as forced plain text — see comment in createCurriculum.
     const newRow = sh.getLastRow();
-    setTextValue(sh.getRange(newRow, 2), b.eventDate || '');
-    setTextValue(sh.getRange(newRow, 9), b.signupCloseDate || '');
+    setInstantValue(sh.getRange(newRow, 2), b.eventDate || '');
+    setInstantValue(sh.getRange(newRow, 9), b.signupCloseDate || '');
     return 'Event created: ' + b.eventName;
 }
 
@@ -576,12 +595,12 @@ function editEvent(b) {
     if (rowIdx < 0) throw new Error('Event not found: ' + b.eventName);
 
     const f = b.fields || {};
-    if (f.eventDate       !== undefined) setTextValue(sh.getRange(rowIdx, 2), f.eventDate);
+    if (f.eventDate       !== undefined) setInstantValue(sh.getRange(rowIdx, 2), f.eventDate);
     if (f.hours           !== undefined) sh.getRange(rowIdx, 3).setValue(f.hours);
     if (f.isAssembly      !== undefined) sh.getRange(rowIdx, 5).setValue(f.isAssembly);
     if (f.isLeadership    !== undefined) sh.getRange(rowIdx, 6).setValue(f.isLeadership);
     if (f.maxVolunteers   !== undefined) sh.getRange(rowIdx, 7).setValue(f.maxVolunteers);
-    if (f.signupCloseDate !== undefined) setTextValue(sh.getRange(rowIdx, 9), f.signupCloseDate);
+    if (f.signupCloseDate !== undefined) setInstantValue(sh.getRange(rowIdx, 9), f.signupCloseDate);
     if (f.instructions    !== undefined) sh.getRange(rowIdx, 10).setValue(f.instructions);
     if (f.chapterLabel    !== undefined) sh.getRange(rowIdx, 11).setValue(f.chapterLabel);
     if (f.cardColor       !== undefined) sh.getRange(rowIdx, 12).setValue(f.cardColor);
