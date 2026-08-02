@@ -1857,12 +1857,6 @@ hr.divider { border: none; border-top: 1.5px solid var(--border); margin: 16px 0
 
 /* ─── YMCA GATE ──────────────────────────────── */
 .ev-tag-ymca { background: rgba(212,150,14,.12); color: #b87000; border: 1.5px solid rgba(212,150,14,.30); }
-.ymca-form-row {
-    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-    padding: 14px 16px; border-radius: 10px;
-    border: 1.5px solid var(--border); background: var(--surface-2);
-}
-.ymca-form-row + .ymca-form-row { margin-top: 8px; }
 
 /* ─── CHAPTER FILTER CHIPS ──────────────────────── */
 .act-filter-row {

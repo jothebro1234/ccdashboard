@@ -18,6 +18,12 @@ const S = {
     isChapterPres: false, // true when the Directors sheet Role cell literally contained "pres"
 };
 
+// Volunteers sheet column V (0-indexed 21) — the Timezone question from the Google Form.
+// Read by fixed position rather than header-name lookup, since the exact header text isn't
+// guaranteed to match what the app expects. There is no in-portal way to set this; it only
+// ever comes from the volunteer's Google Form answer.
+const VOL_TIMEZONE_COL_IDX=21;
+
 let _othersExpanded = false;
 let _actChapterFilter = 'eligible'; // 'eligible' | 'my_chapter' | 'all'
 
@@ -341,7 +347,7 @@ async function doUploadYMCAForm(file,closeFn){
     toast('YMCA form uploaded! You can now register for YMCA events.','success');
     if(closeFn)closeFn();
     if(S.view==='activities')viewActivities();
-    else if(S.view==='progress'||S.view==='dashboard')navigate(S.view);
+    else if(S.view==='dashboard')navigate(S.view);
 }
 /* ── Timezone helpers ─────────────────────────────────────── */
 // Curated IANA zones offered on Post/Edit Assignment & Event forms, and on a volunteer's own
@@ -834,10 +840,9 @@ async function loadVolunteerData(name) {
     S.data.chapRank=(mySchool&&chapIdx>=0)?chapIdx+1:null;
     S.data.chapTotal=chapVols.length;
 
-    // Load hours goal, YMCA form URL, and timezone — find each column by header name
+    // Load hours goal and YMCA form URL — find each column by header name
     const volHeaders=(volRows[0]||[]).map(h=>(h||'').trim());
     const ymcaColIdx=volHeaders.indexOf('YMCAFormURL');
-    const tzColIdx=volHeaders.indexOf('Timezone');
     const myVolRow=volRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===lower);
     S.data.hoursGoal=myVolRow?(parseFloat(myVolRow[13])||null):null;
     const ymcaUrl=myVolRow&&ymcaColIdx>=0?(myVolRow[ymcaColIdx]||'').trim():'';
@@ -846,7 +851,7 @@ async function loadVolunteerData(name) {
     const resolvedYmca=ymcaUrl||(S.data.ymcaFormURL||S.user?.ymcaFormURL||'');
     S.data.ymcaFormURL=resolvedYmca;
     if(S.user)S.user.ymcaFormURL=resolvedYmca; // always sync, even if empty
-    const tzVal=myVolRow&&tzColIdx>=0?(myVolRow[tzColIdx]||'').trim():'';
+    const tzVal=myVolRow?(myVolRow[VOL_TIMEZONE_COL_IDX]||'').trim():'';
     if(S.user)S.user.timezone=tzVal||S.user.timezone||'';
 
     S.data.myRegistrations=sortByRecency(S.data.curriculum.filter(r=>{
@@ -1080,7 +1085,6 @@ async function handleGoogleSignIn(credentialResponse) {
         const emailCol=CONFIG.EMAIL_COL??4;
         const volHeaders=(volRows[0]||[]).map(h=>(h||'').trim());
         const ymcaColIdx=volHeaders.indexOf('YMCAFormURL');
-        const tzColIdx=volHeaders.indexOf('Timezone');
         const volRow=volRows.slice(1).find(r=>(r[emailCol]||'').trim().toLowerCase()===email);
         const dirRow=dirRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
         const chapRow=chapRows.slice(1).find(r=>(r[0]||'').trim().toLowerCase()===email);
@@ -1099,7 +1103,7 @@ async function handleGoogleSignIn(credentialResponse) {
                 onTimeRate:parseFloat(volRow[10])||null,
                 lastContact:(volRow[11]||'').trim(),
                 ymcaFormURL:ymcaColIdx>=0?(volRow[ymcaColIdx]||'').trim():'',
-                timezone:tzColIdx>=0?(volRow[tzColIdx]||'').trim():'',
+                timezone:(volRow[VOL_TIMEZONE_COL_IDX]||'').trim(),
             };
         }
 
@@ -1296,7 +1300,6 @@ function renderSidebar() {
         mainItems=[
             {id:'dashboard', icon:'🏠',label:'Dashboard'},
             {id:'activities',icon:'📚',label:'Volunteer Opportunities'},
-            {id:'progress',  icon:'📈',label:'My Progress'},
             {id:'calendar',  icon:'📅',label:'Calendar'},
         ];
         if(isUnified) mainItems.push({id:'director',icon:'⚙️',label:'Director Panel'});
@@ -1308,7 +1311,6 @@ function renderSidebar() {
         mainItems=[
             {id:'dashboard', icon:'🏠',label:'Dashboard'},
             {id:'activities',icon:'📚',label:'Volunteer Opportunities'},
-            {id:'progress',  icon:'📈',label:'My Progress'},
             {id:'director',  icon:'⚙️',label:'Chapter Panel'},
             {id:'calendar',  icon:'📅',label:'Calendar'},
         ];
@@ -1433,7 +1435,6 @@ function navigate(view,sub) {
         case 'dashboard':   viewDashboard();break;
         case 'activities':  viewActivities();break;
         case 'curriculum':  viewActivities();break; // alias for backward compat
-        case 'progress':    viewMyProgress();break;
         case 'leaderboard': viewLeaderboard();break;
         case 'director':    viewDirectorPanel(sub||'post-event');break;
         case 'overview':    viewDirectorOverview();break;
@@ -2108,83 +2109,6 @@ function showAssignmentDetail(r) {
             </div>`:''}
         </div>`;
     openModal(html);
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   VIEW: MY PROGRESS
-   ═══════════════════════════════════════════════════════════════ */
-function viewMyProgress() {
-    const root=document.getElementById('view-root');
-    // chapter_rep and directors use volUser for personal stats if available
-    const u=(S.role==='chapter_rep'||S.dirRole)?( S.volUser||S.user||{} ):(S.user||{});
-    const stats=S.data.myStats||{totalHours:0,curricCount:0,eventsCount:0};
-
-    root.innerHTML=`
-        <div class="view-header">
-            <div>
-                <div class="view-title">My Progress 📈</div>
-                <div class="view-subtitle">${u.track||'Curio Crate'} track</div>
-            </div>
-        </div>
-        <div class="card-grid card-grid-3 mb-20">
-            <div class="stat-card">
-                <div class="stat-icon" style="background:var(--blue-g)">⏱</div>
-                <div><div class="stat-val">${stats.totalHours}</div><div class="stat-lbl">Total Hours</div></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon" style="background:var(--teal-g)">📚</div>
-                <div><div class="stat-val" style="color:var(--teal)">${stats.curricCount}</div><div class="stat-lbl">Curriculum Built</div></div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon" style="background:var(--violet-g)">🎓</div>
-                <div><div class="stat-val" style="color:var(--violet)">${stats.eventsCount}</div><div class="stat-lbl">Events Attended</div></div>
-            </div>
-        </div>
-        <div class="section-title">REQUIRED FORMS</div>
-        <div class="ymca-form-row">
-            <div style="font-size:18px">🏕️</div>
-            <div style="flex:1;min-width:0">
-                <div style="font-weight:700;color:var(--text);font-size:13px">YMCA Volunteer Form</div>
-                <div style="font-size:11px;color:var(--textm);margin-top:2px">Required to register for YMCA-tagged events · upload once, unlocks all</div>
-            </div>
-            ${S.data.ymcaFormURL||S.user?.ymcaFormURL
-                ?`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                    <span style="font-size:11px;font-weight:700;color:var(--green);background:var(--green-g);border:1px solid rgba(52,211,153,.3);border-radius:100px;padding:3px 10px">✅ On file</span>
-                    <a href="${esc(S.data.ymcaFormURL||S.user?.ymcaFormURL||'')}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">View</a>
-                    <button class="btn btn-ghost btn-sm" id="ymca-reupload-btn">Re-upload</button>
-                </div>`
-                :`<button class="btn btn-primary btn-sm" id="ymca-upload-progress-btn">📤 Upload Form</button>`
-            }
-        </div>
-        <div class="section-title mt-20">YOUR TIMEZONE</div>
-        <div class="ymca-form-row">
-            <div style="font-size:18px">🌐</div>
-            <div style="flex:1;min-width:0">
-                <div style="font-weight:700;color:var(--text);font-size:13px">Dates &amp; times shown to you are converted to this zone</div>
-                <div style="font-size:11px;color:var(--textm);margin-top:2px">Applies wherever assignment/event dates are shown across the portal</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                ${tzSelectHTML('mytz-select',u.timezone||'')}
-                <button class="btn btn-primary btn-sm" id="mytz-save-btn">Save</button>
-            </div>
-        </div>`;
-    // Attach Required Forms events
-    document.getElementById('ymca-upload-progress-btn')?.addEventListener('click',showYMCAUploadModal);
-    document.getElementById('mytz-save-btn')?.addEventListener('click',async()=>{
-        const btn=document.getElementById('mytz-save-btn');
-        const tz=document.getElementById('mytz-select').value;
-        const volName=u.name;
-        if(!volName)return;
-        btn.disabled=true;btn.textContent='Saving…';
-        try {
-            await postAction('set_timezone',{volunteerName:volName,timezone:tz});
-            if(S.user)S.user.timezone=tz;
-            if(S.volUser)S.volUser.timezone=tz;
-            toast('Timezone saved!','success');
-        } catch(e){toast(e.message,'error');}
-        btn.disabled=false;btn.textContent='Save';
-    });
-    document.getElementById('ymca-reupload-btn')?.addEventListener('click',showYMCAUploadModal);
 }
 
 function buildTierCriteria(tier,completed,current,stats) {

@@ -13,18 +13,19 @@
  *    to the sheet — see the big comment above reconcileFormResponse() for how all three fit
  *    together. Re-running setupTriggers() later is safe; it won't create duplicates.
  *
- * VOLUNTEERS SHEET columns (A–O, plus an appended Timezone column):
+ * VOLUNTEERS SHEET columns (A–O, plus an appended Timezone column at V):
  *   A=Name  B=Discord  C=School  D=Avatar  E=Email
  *   F=Track  G=Tier  H=Lead  I=CyclesCompleted
  *   J=SelectYourMainSpecialty  K=OnTimeRate  L=LastContact  M=TotalHours  N=HoursGoal
  *   O=YMCAFormURL
- *   Timezone (IANA zone, e.g. "America/New_York") — found/created by header name via
- *   findOrAddColumn, NOT a fixed index, since this sheet has grown extra columns over time
- *   outside this file. Set via the Google Form (see onFormSubmit/normalizeTimezone below,
- *   which normalizes free-text answers to a canonical IANA zone) or the portal's own
- *   "My Progress → Your Timezone" self-service control (set_timezone action) for volunteers
- *   who signed up before the form question existed. Every date/time a volunteer sees anywhere
- *   in the portal is converted into this zone — that's the actual per-volunteer auto-conversion.
+ *   V=Timezone (IANA zone, e.g. "America/New_York") — set via the Google Form's Timezone
+ *   question (see onFormSubmit/normalizeTimezone below, which normalizes free-text answers
+ *   like "Eastern (ET)" into a canonical IANA zone in place). This backend still finds/writes
+ *   it by header name via findOrAddColumn (safe regardless of exact position), but the
+ *   frontend reads it from the fixed column V specifically — see portal.js. Every date/time a
+ *   volunteer sees anywhere in the portal is converted into this zone — that's the actual
+ *   per-volunteer auto-conversion. There is no in-portal way to set this anymore; it comes
+ *   from the form only.
  *
  * CURRICULUM SHEET columns (A–T):
  *   A=AssignmentName  B=DueDate  C=Hours  D=Contributors
@@ -383,7 +384,6 @@ function route(body) {
         /* Volunteers */
         case 'update_tier':            return updateTier(body);
         case 'set_hours_goal':         return setHoursGoal(body);
-        case 'set_timezone':           return setTimezone(body);
         case 'upload_ymca_form':       return uploadYMCAForm(body);
         /* Director requests (chapter president → DOC/DOO grant) */
         case 'request_director':          return requestDirector(body);
@@ -744,16 +744,6 @@ function setHoursGoal(b) {
     if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
     updateCell(SHEET_VOLUNTEERS, found[0], 13, b.goal);
     return 'Hours goal set: ' + b.volunteerName + ' → ' + b.goal;
-}
-
-/* Volunteer self-service: save their own timezone preference. Every date/time they see in the
-   portal is converted into this zone (falling back to their browser's zone if unset). */
-function setTimezone(b) {
-    const found = findRow(SHEET_VOLUNTEERS, 0, b.volunteerName);
-    if (!found) throw new Error('Volunteer not found: ' + b.volunteerName);
-    const tzCol = findOrAddColumn(getSheet(SHEET_VOLUNTEERS), 'Timezone');
-    updateCell(SHEET_VOLUNTEERS, found[0], tzCol - 1, b.timezone || '');
-    return 'Timezone set: ' + b.volunteerName + ' → ' + b.timezone;
 }
 
 function uploadYMCAForm(b) {
